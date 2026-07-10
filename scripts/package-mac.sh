@@ -67,11 +67,21 @@ rsync -a --exclude 'electron' --exclude '.bin' "$SRC/node_modules/" "$APPRES/nod
 echo "==> Nettoyage des attributs etendus + quarantine"
 xattr -cr "$OUT" 2>/dev/null || true
 
-echo "==> Signature ad-hoc (helpers natifs d'abord, puis l'app entiere)"
+# Identite de signature STABLE (certificat auto-signe) : le Designated Requirement
+# devient `identifier ... and certificate leaf = H"..."` — constant entre rebuilds,
+# donc les permissions TCC PERSISTENT (l'ad-hoc, lui, a un cdhash qui change a chaque
+# build et reinitialise toutes les autorisations). Cree-la via scripts/setup-signing.sh.
+SIGN_ID="$(security find-identity -p codesigning 2>/dev/null | grep 'NotchZFX Self-Signed' | grep -oE '[0-9A-F]{40}' | head -1)"
+if [ -n "$SIGN_ID" ]; then
+  echo "==> Signature avec identite stable ($SIGN_ID) — permissions persistantes"
+else
+  SIGN_ID="-"
+  echo "==> Signature ad-hoc (identite stable absente : lance scripts/setup-signing.sh pour eviter que les permissions se reinitialisent)"
+fi
 for h in "$APPRES/src/main/"*.app; do
-  [ -d "$h" ] && codesign --force --deep --sign - "$h" >/dev/null 2>&1 || true
+  [ -d "$h" ] && codesign --force --deep --sign "$SIGN_ID" "$h" >/dev/null 2>&1 || true
 done
-codesign --force --deep --sign - "$OUT" >/dev/null 2>&1 || codesign --force --sign - "$OUT" || true
+codesign --force --deep --sign "$SIGN_ID" "$OUT" >/dev/null 2>&1 || codesign --force --sign "$SIGN_ID" "$OUT" || true
 
 echo "==> Verification"
 codesign --verify --verbose=1 "$OUT" 2>&1 | sed 's/^/  /' || true
