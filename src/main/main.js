@@ -432,7 +432,9 @@ function showHud(kind, value, muted) {
   if (n.state === 'closed' && !n.fixed) {
     const d = n.display;
     const y = process.platform === 'win32' ? d.workArea.y : d.bounds.y;
-    n.win.setBounds({ x: Math.round(d.bounds.x + d.bounds.width / 2 - HUD_WIN.w / 2), y, width: HUD_WIN.w, height: HUD_WIN.h }, false);
+    // Fenetre du HUD aussi large que l'encoche en lecture (encoche + 2 extensions).
+    const hudW = Math.round(n.geo.closedWidth + 8 + LIVE_EXTRA);
+    n.win.setBounds({ x: Math.round(d.bounds.x + d.bounds.width / 2 - hudW / 2), y, width: hudW, height: HUD_WIN.h }, false);
   }
   n.win.webContents.send('hud', { visible: true, kind, value, muted });
   clearTimeout(n.hudTimer);

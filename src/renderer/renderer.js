@@ -333,7 +333,9 @@ window.notch.onHud((h) => {
     const pct = Math.round((h.value || 0) * 100);
     $('hud-fill').style.width = pct + '%';
     $('hud-pct').textContent = pct + '%';
-    if (state === 'closed') spring.animateTo(HUD_DIMS, 0.3, 0.9);
+    // Largeur du HUD = largeur TOTALE de l'encoche en lecture (encoche + les deux
+    // extensions pochette/spectre), pour que la jauge occupe toute cette largeur.
+    if (state === 'closed') spring.animateTo({ w: closedDims.w + LIVE_EXTRA, h: HUD_DIMS.h, tr: HUD_DIMS.tr, br: HUD_DIMS.br }, 0.3, 0.9);
   } else {
     document.documentElement.classList.remove('hud');
     if (state === 'closed') { wasLiveClosed = false; applyClosedShape(true); } // revient a la forme fermee (live si musique)
