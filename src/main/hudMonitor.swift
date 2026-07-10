@@ -141,8 +141,9 @@ final class HudMonitor {
     let brightThreshold: Float = 0.005
 
     func start() {
-        // Sonde toutes les ~120 ms, indefiniment.
-        let timer = Timer(timeInterval: 0.12, repeats: true) { [weak self] _ in self?.poll() }
+        // Sonde toutes les ~50 ms : detection rapide pour masquer la jauge native
+        // avant qu'elle ne clignote (lecture CoreAudio + DisplayServices peu couteuse).
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in self?.poll() }
         RunLoop.main.add(timer, forMode: .common)
     }
 

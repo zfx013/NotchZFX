@@ -134,9 +134,37 @@ function sendGeometry(n) {
   });
 }
 
+// Largeur ajoutee a l'encoche fermee pendant la lecture (doit egaler LIVE_EXTRA
+// cote renderer) : place la pochette a gauche et le spectre a droite hors encoche.
+const LIVE_EXTRA = 84;
+function isLiveClosed(n) {
+  return !n.fixed && !n.geo.simulated
+    && prefsStore && prefsStore.get('showMusicLiveActivity')
+    && !!(lastMedia && lastMedia.available && lastMedia.playing);
+}
 function closedWinDims(n) {
+  const extra = isLiveClosed(n) ? LIVE_EXTRA : 0;
   // Hauteur mini 6 px (encoche fine des ecrans externes -> peu de zone bloquante).
-  return { w: Math.max(80, Math.round(n.geo.closedWidth + 8)), h: Math.max(6, Math.round(n.geo.closedHeight)) };
+  return { w: Math.max(80, Math.round(n.geo.closedWidth + 8 + extra)), h: Math.max(6, Math.round(n.geo.closedHeight)) };
+}
+
+// Elargit/retrecit la fenetre fermee quand la lecture demarre/s'arrete. On retrecit
+// APRES le repli de la forme (380 ms) pour eviter un clip brutal du dessin.
+function updateLiveClosed() {
+  liveNotches().forEach((n) => {
+    if (n.fixed || n.geo.simulated || n.state !== 'closed') return;
+    const live = isLiveClosed(n);
+    if (live === n._wasLive) return;
+    n._wasLive = live;
+    if (live) {
+      setBounds(n, 'closed');
+    } else {
+      clearTimeout(n._liveShrinkT);
+      n._liveShrinkT = setTimeout(() => {
+        if (alive(n) && n.state === 'closed' && !isLiveClosed(n)) setBounds(n, 'closed');
+      }, 380);
+    }
+  });
 }
 
 function setBounds(n, kind) {
@@ -256,10 +284,18 @@ function isScreenshotFile(fullPath, cb) {
   });
 }
 
+// IMPORTANT : `defaults read ... location` renvoie une chaine ECHAPPEE (ex.
+// "Capture d'écran" en toutes lettres), ce qui casse fs.existsSync sur les
+// dossiers accentues (forme decomposee NFD). On lit donc l'export XML, dont la
+// chaine est en vrai UTF-8.
 function screenshotDir(cb) {
-  execFile('defaults', ['read', 'com.apple.screencapture', 'location'], (err, stdout) => {
-    const raw = err ? '' : String(stdout).trim();
-    let dir = raw.replace(/^~(?=\/|$)/, os.homedir());
+  execFile('defaults', ['export', 'com.apple.screencapture', '-'], (err, stdout) => {
+    let dir = '';
+    if (!err) {
+      const m = String(stdout).match(/<key>location<\/key>\s*<string>([^<]*)<\/string>/);
+      if (m) dir = m[1].trim();
+    }
+    dir = dir.replace(/^~(?=\/|$)/, os.homedir());
     if (!dir || !fs.existsSync(dir)) dir = app.getPath('desktop');
     cb(dir);
   });
@@ -281,11 +317,19 @@ function startScreenshotWatch(onShot) {
         isScreenshotFile(full, (yes) => { if (yes) onShot(full); });
       }, 900);
     };
+    // fs.watch (FSEvents) pour la reactivite immediate...
     try {
       fs.watch(dir, (_event, filename) => { if (filename) consider(String(filename)); });
     } catch (err) {
       console.warn('surveillance captures indisponible:', err.message);
     }
+    // ...double d'un sondage de secours (FSEvents rate parfois des evenements,
+    // surtout avec des noms en forme decomposee).
+    setInterval(() => {
+      let files;
+      try { files = fs.readdirSync(dir); } catch (_) { return; }
+      for (const f of files) consider(f);
+    }, 2000);
   });
 }
 
@@ -296,11 +340,19 @@ function hudTargetNotch() {
   if (alive(n) && !n.fixed && !n.geo.simulated) return n;
   return liveNotches().find((x) => x.display.internal && !x.geo.simulated) || null;
 }
+function suppressNativeOsd() {
+  // Masque la jauge NATIVE de macOS (volume/luminosite) : on tue OSDUIHelper, le
+  // process qui la dessine. Notre detection arrive juste APRES son apparition et
+  // OSDUIHelper peut se relancer -> on le retue en rafale sur ~0.7 s. Chemin ABSOLU
+  // car une app lancee par le Finder a un PATH restreint (killall nu introuvable).
+  const kill = () => { try { execFile('/usr/bin/killall', ['-9', 'OSDUIHelper'], () => {}); } catch (_) {} };
+  kill();
+  let n = 0;
+  const t = setInterval(() => { kill(); if (++n >= 8) clearInterval(t); }, 90);
+}
 function showHud(kind, value, muted) {
   if (!prefsStore || !prefsStore.get('replaceSystemHUD')) return;
-  // Masque la jauge NATIVE de macOS (volume/luminosite) : on tue OSDUIHelper, le
-  // process qui la dessine. Il se relance seul ; on le retue au prochain changement.
-  try { execFile('killall', ['-9', 'OSDUIHelper'], () => {}); } catch (_) {}
+  suppressNativeOsd();
   const n = hudTargetNotch();
   if (!alive(n)) return;
   n.hudActive = true;
@@ -563,7 +615,7 @@ app.whenReady().then(async () => {
   // Media (now playing via AppleScript) : diffuse a toutes les encoches.
   mediaHandle = mediaLib.startMedia({
     getSource: () => (prefsStore ? prefsStore.get('musicSource') : 'spotify'),
-    onUpdate: (info) => { lastMedia = info; broadcast('media', info); },
+    onUpdate: (info) => { lastMedia = info; broadcast('media', info); updateLiveClosed(); },
     intervalMs: 1000,
   });
 

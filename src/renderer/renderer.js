@@ -99,6 +99,31 @@ class NotchSpring {
 }
 const spring = new NotchSpring(closedDims);
 
+// ---- Activite fermee (lecture) : l'encoche fermee s'ELARGIT pendant la lecture
+// pour que la pochette (gauche) et le spectre (droite) se deplient de part et
+// d'autre de l'encoche physique (facon Boring Notch). ----
+const LIVE_EXTRA = 84;
+let wasLiveClosed = false;
+function liveClosed() {
+  return state === 'closed' && !simulated
+    && prefs.showMusicLiveActivity !== false
+    && !!(media && media.available && media.playing)
+    && !document.documentElement.classList.contains('hud');
+}
+function closedTarget() {
+  return liveClosed()
+    ? { w: closedDims.w + LIVE_EXTRA, h: closedDims.h, tr: closedDims.tr, br: closedDims.br }
+    : closedDims;
+}
+function applyClosedShape(force) {
+  if (state !== 'closed' || document.documentElement.classList.contains('hud')) return;
+  const lc = liveClosed();
+  if (!force && lc === wasLiveClosed) return; // n'anime que sur changement (evite le jitter au poll 1 s)
+  wasLiveClosed = lc;
+  if (animated()) spring.animateTo(closedTarget(), 0.4, 0.9);
+  else spring.snap(closedTarget());
+}
+
 // ---- Etat ouvert / ferme ----
 function applyState(s, tab) {
   state = s;
@@ -116,8 +141,11 @@ function applyState(s, tab) {
     openView.classList.add('shown');
     if (!simulated) wrapEl.classList.add('shadowed');
   } else {
-    if (animated()) spring.animateTo(closedDims, 0.45, 1.0); // ContentView.swift:124
-    else spring.snap(closedDims);
+    // Ferme vers la forme LIVE si de la musique joue (sinon encoche fermee normale).
+    wasLiveClosed = liveClosed();
+    const t = closedTarget();
+    if (animated()) spring.animateTo(t, 0.45, 1.0); // ContentView.swift:124
+    else spring.snap(t);
     openView.classList.add('hiding');
     openView.classList.remove('shown');
     wrapEl.classList.remove('shadowed');
@@ -288,6 +316,7 @@ function renderMedia(m) {
   $('slider-fill').style.width = Math.min(100, frac * 100) + '%';
   $('ts-cur').textContent = fmtTime(media.positionMs);
   $('ts-dur').textContent = fmtTime(media.durationMs);
+  applyClosedShape(); // deplie / replie l'encoche fermee selon l'etat de lecture
 }
 window.notch.onMedia(renderMedia);
 
@@ -305,7 +334,7 @@ window.notch.onHud((h) => {
     if (state === 'closed') spring.animateTo(HUD_DIMS, 0.3, 0.9);
   } else {
     document.documentElement.classList.remove('hud');
-    if (state === 'closed') spring.animateTo(closedDims, 0.34, 1.0);
+    if (state === 'closed') { wasLiveClosed = false; applyClosedShape(true); } // revient a la forme fermee (live si musique)
   }
 });
 
