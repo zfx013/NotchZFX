@@ -475,7 +475,10 @@ function createNotch(display) {
   notches.push(n);
 
   win.setAlwaysOnTop(true, 'screen-saver', 1); // ~ .mainMenu + 3
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // Visible sur TOUS les bureaux + au-dessus du plein ecran. skipTransformProcessType:
+  // l'app est deja un agent (dock cache) -> evite de changer le type de process a
+  // chaque appel (source de clignotement lors des transitions de Space).
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   try { if (prefsStore && prefsStore.get('hideFromScreenRecording')) win.setContentProtection(true); } catch (_) {}
   setBounds(n, 'closed');
   setTimeout(() => { if (alive(n) && n.state === 'closed') setBounds(n, 'closed'); }, 300);
@@ -514,7 +517,20 @@ function syncNotches() {
     if (!d.internal && !showExternal) continue;
     const n = notches.find((x) => x.display.id === d.id);
     if (!n) { createNotch(d); }
-    else { n.display = d; n.geo = displayGeo(d); n.fixed = !d.internal; setBounds(n, n.state === 'open' ? 'open' : 'closed'); sendGeometry(n); }
+    else {
+      // IMPORTANT : ne repositionne QUE si la geometrie a vraiment change.
+      // display-metrics-changed se declenche pendant les transitions de Bureau /
+      // ouverture d'app / affichage du bureau, avec des metriques identiques -> sans
+      // ce garde-fou, setBounds/sendGeometry font clignoter (disparaitre) l'encoche.
+      const b = n.display.bounds, nb = d.bounds;
+      const changed = b.x !== nb.x || b.y !== nb.y || b.width !== nb.width || b.height !== nb.height
+        || n.display.scaleFactor !== d.scaleFactor || n.fixed !== !d.internal;
+      n.display = d;
+      if (changed) {
+        n.geo = displayGeo(d); n.fixed = !d.internal;
+        setBounds(n, n.state === 'open' ? 'open' : 'closed'); sendGeometry(n);
+      }
+    }
   }
 }
 
@@ -631,9 +647,14 @@ app.whenReady().then(async () => {
   refreshCalendar();
   calendarTimer = setInterval(refreshCalendar, 5 * 60 * 1000);
 
-  screen.on('display-metrics-changed', syncNotches);
-  screen.on('display-added', syncNotches);
-  screen.on('display-removed', syncNotches);
+  // Debounce : les transitions (Bureau/Mission Control/plein ecran) emettent des
+  // rafales de display-metrics-changed ; on les coalesce pour ne pas repositionner
+  // l'encoche a repetition (clignotement).
+  let syncTimer = null;
+  const syncSoon = () => { clearTimeout(syncTimer); syncTimer = setTimeout(syncNotches, 250); };
+  screen.on('display-metrics-changed', syncSoon);
+  screen.on('display-added', syncSoon);
+  screen.on('display-removed', syncSoon);
 });
 
 // ---- IPC ----
