@@ -291,7 +291,7 @@ html, body {
    avec sa propre duree + amplitude + phase -> mouvement organique, non synchronise. */
 .spectrum { display: flex; align-items: center; justify-content: center; gap: 2px; height: 17px; }
 .spectrum span {
-  width: 2px; height: 100%; background: #fff; border-radius: 1px;
+  width: 2px; height: 100%; background: var(--spectrum-color, #fff); border-radius: 1px;
   transform-origin: center; /* grandit/retrecit depuis le MILIEU (haut + bas), pas depuis le bas */
 }
 .spectrum span:nth-child(1) { animation: eqA 0.68s -0.10s ease-in-out infinite; }

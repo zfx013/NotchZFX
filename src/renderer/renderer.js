@@ -316,6 +316,8 @@ function renderMedia(m) {
   $('slider-fill').style.width = Math.min(100, frac * 100) + '%';
   $('ts-cur').textContent = fmtTime(media.positionMs);
   $('ts-dur').textContent = fmtTime(media.durationMs);
+  // Spectre teinte a la couleur de la pochette (fallback blanc).
+  document.documentElement.style.setProperty('--spectrum-color', media.artColor || '#ffffff');
   applyClosedShape(); // deplie / replie l'encoche fermee selon l'etat de lecture
 }
 window.notch.onMedia(renderMedia);

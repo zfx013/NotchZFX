@@ -10,6 +10,7 @@ const { app, BrowserWindow, ipcMain, screen, shell, nativeImage, Tray, Menu, Sha
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const https = require('https');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const net = require('./network');
@@ -84,6 +85,61 @@ let lastMedia = null;
 let hudHandle = null;
 let calendarData = null;
 let calendarTimer = null;
+
+// ---- Diagnostic (temporaire) : journalise dans userData/diag.log ----
+function DIAG(msg) {
+  try { fs.appendFileSync(path.join(app.getPath('userData'), 'diag.log'), msg + '\n'); } catch (_) {}
+}
+
+// ---- Couleur dominante de la pochette (pour teinter le spectre) ----
+// L'artwork Spotify est une URL distante -> on la telecharge cote main (pas de
+// restriction CORS ici), on decode via nativeImage et on calcule une couleur VIVE
+// moyenne (ponderee par la saturation). Mise en cache par URL.
+let artColorCache = { url: null, color: null };
+function computeArtColor(url, cb) {
+  if (!url || !/^https?:/.test(url)) return cb(null);
+  if (url === artColorCache.url) return cb(artColorCache.color);
+  let done = false;
+  const finish = (c) => { if (done) return; done = true; cb(c); };
+  let req;
+  try {
+    req = https.get(url, { timeout: 4000 }, (res) => {
+      if (res.statusCode !== 200) { DIAG(`[artcolor] HTTP ${res.statusCode} pour ${url}`); res.resume(); return finish(null); }
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        try {
+          const img = nativeImage.createFromBuffer(Buffer.concat(chunks));
+          const sz = img.getSize();
+          if (!sz.width) return finish(null);
+          const bmp = img.toBitmap(); // BGRA
+          let r = 0, g = 0, b = 0, wsum = 0;
+          const step = Math.max(1, Math.floor((sz.width * sz.height) / 1500)) * 4;
+          for (let i = 0; i + 3 < bmp.length; i += step) {
+            const bb = bmp[i], gg = bmp[i + 1], rr = bmp[i + 2];
+            const mx = Math.max(rr, gg, bb), mn = Math.min(rr, gg, bb);
+            if (mx < 30) continue;                      // trop sombre
+            if (mn > 220) continue;                     // quasi blanc (tous canaux hauts)
+            const sat = mx === 0 ? 0 : (mx - mn) / mx;  // 0..1
+            if (sat < 0.12) continue;                   // gris
+            const w = 0.3 + sat * sat * 3;              // favorise fortement les couleurs vives
+            r += rr * w; g += gg * w; b += bb * w; wsum += w;
+          }
+          if (wsum < 1) return finish(null);
+          let R = r / wsum, G = g / wsum, B = b / wsum;
+          const mx = Math.max(R, G, B);
+          if (mx > 0 && mx < 170) { const k = 170 / mx; R *= k; G *= k; B *= k; } // rehausse la luminosite
+          const hex = '#' + [R, G, B].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+          artColorCache = { url, color: hex };
+          DIAG(`[artcolor] ${hex} <- ${url}`);
+          finish(hex);
+        } catch (_) { finish(null); }
+      });
+    });
+    req.on('error', () => finish(null));
+    req.on('timeout', () => { try { req.destroy(); } catch (_) {} finish(null); });
+  } catch (_) { finish(null); }
+}
 
 // ---- Helpers multi-encoches ----
 const alive = (n) => !!n && !!n.win && !n.win.isDestroyed();
@@ -348,8 +404,11 @@ function suppressNativeOsd() {
   // car une app lancee par le Finder a un PATH restreint (killall nu introuvable).
   const kill = () => { try { execFile('/usr/bin/killall', ['-9', 'OSDUIHelper'], () => {}); } catch (_) {} };
   kill();
+  // DIAG : OSDUIHelper etait-il vivant a cet instant ? (confirme que c'est le bon process)
+  try { execFile('/usr/bin/pgrep', ['-x', 'OSDUIHelper'], (e, out) => DIAG(`[osd] suppress kind au moment T ; OSDUIHelper alive=${!!(out && out.trim())}`)); } catch (_) {}
+  // Rafale rapide et longue : detruit OSDUIHelper des qu'il (re)apparait (~1.4 s).
   let n = 0;
-  const t = setInterval(() => { kill(); if (++n >= 8) clearInterval(t); }, 90);
+  const t = setInterval(() => { kill(); if (++n >= 40) clearInterval(t); }, 35);
 }
 function showHud(kind, value, muted) {
   if (!prefsStore || !prefsStore.get('replaceSystemHUD')) return;
@@ -482,7 +541,7 @@ function createNotch(display) {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   // .stationary : empeche la fenetre de glisser (donc de disparaitre) pendant les
   // transitions de Bureau / Mission Control. Electron ne l'expose pas -> pose FFI.
-  applyStationary(win);
+  DIAG('[stationary create] ' + JSON.stringify(applyStationary(win)));
   try { if (prefsStore && prefsStore.get('hideFromScreenRecording')) win.setContentProtection(true); } catch (_) {}
   setBounds(n, 'closed');
   setTimeout(() => { if (alive(n) && n.state === 'closed') setBounds(n, 'closed'); }, 300);
@@ -491,7 +550,7 @@ function createNotch(display) {
 
   win.webContents.on('did-finish-load', () => {
     setBounds(n, 'closed');
-    applyStationary(win); // re-assertion (Electron peut reinitialiser le comportement a l'affichage)
+    DIAG('[stationary load] ' + JSON.stringify(applyStationary(win))); // re-assertion apres affichage
     sendGeometry(n);
     win.webContents.send('self-info', { ip: net.localIPv4(), inbox: inboxDir, host: os.hostname() });
     win.webContents.send('prefs', getPrefs());
@@ -636,7 +695,19 @@ app.whenReady().then(async () => {
   // Media (now playing via AppleScript) : diffuse a toutes les encoches.
   mediaHandle = mediaLib.startMedia({
     getSource: () => (prefsStore ? prefsStore.get('musicSource') : 'spotify'),
-    onUpdate: (info) => { lastMedia = info; broadcast('media', info); updateLiveClosed(); },
+    onUpdate: (info) => {
+      lastMedia = info;
+      if (info && info.artworkUrl === artColorCache.url) info.artColor = artColorCache.color; // couleur en cache
+      broadcast('media', info);
+      updateLiveClosed();
+      // Couleur de la pochette (async si nouvelle URL) -> re-broadcast quand prete.
+      computeArtColor(info && info.artworkUrl, (color) => {
+        if (lastMedia !== info) return;
+        if ((info.artColor || null) === (color || null)) return;
+        info.artColor = color || null;
+        broadcast('media', info);
+      });
+    },
     intervalMs: 1000,
   });
 

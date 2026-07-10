@@ -34,24 +34,34 @@ function init() {
 
 // NSWindowCollectionBehavior (bits)
 const CAN_JOIN_ALL_SPACES = 1n;   // 1 << 0
+const MOVE_TO_ACTIVE = 2n;        // 1 << 1  (exclusif avec stationary : la ferait suivre le bureau actif)
+const MANAGED = 4n;               // 1 << 2  (pose par Electron ; EXCLUSIF avec stationary/transient)
+const TRANSIENT = 8n;             // 1 << 3  (exclusif avec stationary)
 const STATIONARY = 16n;           // 1 << 4
+const PARTICIPATES_CYCLE = 32n;   // 1 << 5  (exclusif avec ignoresCycle)
 const IGNORES_CYCLE = 64n;        // 1 << 6
 const FULLSCREEN_AUX = 256n;      // 1 << 8
 
 function applyStationary(win) {
-  if (!win || win.isDestroyed()) return false;
-  if (!init()) return false;
+  if (!win || win.isDestroyed()) return { applied: false, reason: 'no-win' };
+  if (!init()) return { applied: false, reason: 'no-koffi' };
   try {
     const view = koffi.decode(win.getNativeWindowHandle(), 'void *');
-    if (!view) return false;
+    if (!view) return { applied: false, reason: 'no-view' };
     const nsWindow = msgSendPtr(view, sel('window'));
-    if (!nsWindow) return false;
-    let behavior = BigInt(msgSendGet(nsWindow, sel('collectionBehavior')));
-    behavior |= CAN_JOIN_ALL_SPACES | STATIONARY | IGNORES_CYCLE | FULLSCREEN_AUX;
-    msgSendSet(nsWindow, sel('setCollectionBehavior:'), behavior);
-    return true;
-  } catch (_) {
-    return false;
+    if (!nsWindow) return { applied: false, reason: 'no-nswindow' };
+    const before = BigInt(msgSendGet(nsWindow, sel('collectionBehavior')));
+    // CRUCIAL : Managed / Transient / Stationary sont MUTUELLEMENT EXCLUSIFS. Electron
+    // pose Managed -> tant qu'il est present, Stationary est IGNORE (la fenetre glisse
+    // avec le bureau). On retire donc Managed+Transient+MoveToActiveSpace (et
+    // ParticipatesInCycle, exclusif d'IgnoresCycle) avant de poser nos drapeaux.
+    let after = before & ~(MANAGED | TRANSIENT | MOVE_TO_ACTIVE | PARTICIPATES_CYCLE);
+    after |= CAN_JOIN_ALL_SPACES | STATIONARY | IGNORES_CYCLE | FULLSCREEN_AUX;
+    msgSendSet(nsWindow, sel('setCollectionBehavior:'), after);
+    const verify = BigInt(msgSendGet(nsWindow, sel('collectionBehavior')));
+    return { applied: true, before: before.toString(), after: after.toString(), verify: verify.toString(), hasStationary: (verify & STATIONARY) === STATIONARY };
+  } catch (e) {
+    return { applied: false, reason: e.message };
   }
 }
 
