@@ -21,7 +21,7 @@ const { startDragMonitor } = require('./dragDaemon');
 const mediaLib = require('./media');
 const { getCalendar, buildCalendarHelper } = require('./calendarDaemon');
 const { startHudMonitor } = require('./hudDaemon');
-const { applyStationary } = require('./macWindow');
+const { applyStationary, pinToSpace, reinjectSpace, unpinFromSpace } = require('./macWindow');
 
 // Dossier userData FIXE "NotchZFX" (+ migration depuis les anciens noms) : le nom
 // du bundle peut changer sans perdre l'etagere ni les preferences.
@@ -404,11 +404,18 @@ function suppressNativeOsd() {
   // car une app lancee par le Finder a un PATH restreint (killall nu introuvable).
   const kill = () => { try { execFile('/usr/bin/killall', ['-9', 'OSDUIHelper'], () => {}); } catch (_) {} };
   kill();
-  // DIAG : OSDUIHelper etait-il vivant a cet instant ? (confirme que c'est le bon process)
-  try { execFile('/usr/bin/pgrep', ['-x', 'OSDUIHelper'], (e, out) => DIAG(`[osd] suppress kind au moment T ; OSDUIHelper alive=${!!(out && out.trim())}`)); } catch (_) {}
-  // Rafale rapide et longue : detruit OSDUIHelper des qu'il (re)apparait (~1.4 s).
   let n = 0;
   const t = setInterval(() => { kill(); if (++n >= 40) clearInterval(t); }, 35);
+  // DIAG : sur macOS 26 OSDUIHelper n'est pas le renderer. On capture les process qui
+  // APPARAISSENT 250 ms apres le changement (le renderer de la jauge s'y trouvera),
+  // et on note les fenetres/overlays candidats deja lances.
+  try {
+    const snap = (cb) => execFile('/bin/ps', ['-Axo', 'comm'], (e, out) => cb(new Set((out || '').split('\n').map((s) => s.trim().split('/').pop()).filter(Boolean))));
+    snap((before) => setTimeout(() => snap((after) => {
+      const nw = [...after].filter((x) => !before.has(x));
+      DIAG('[osd-newprocs] ' + (nw.length ? nw.join(', ') : '(aucun nouveau process -> renderer deja lance, ex. ControlCenter/WindowServer)'));
+    }), 250));
+  } catch (_) {}
 }
 function showHud(kind, value, muted) {
   if (!prefsStore || !prefsStore.get('replaceSystemHUD')) return;
@@ -534,7 +541,10 @@ function createNotch(display) {
   };
   notches.push(n);
 
-  win.setAlwaysOnTop(true, 'screen-saver', 1); // ~ .mainMenu + 3
+  // Niveau .mainMenu + 3 (=27) comme Boring Notch : au-dessus de la barre des menus
+  // (24) SANS etre a un niveau extreme (screen-saver=1000), qui fait disparaitre la
+  // fenetre pendant les transitions de Bureau.
+  win.setAlwaysOnTop(true, 'main-menu', 3);
   // Visible sur TOUS les bureaux + au-dessus du plein ecran. skipTransformProcessType:
   // l'app est deja un agent (dock cache) -> evite de changer le type de process a
   // chaque appel (source de clignotement lors des transitions de Space).
@@ -545,12 +555,16 @@ function createNotch(display) {
   try { if (prefsStore && prefsStore.get('hideFromScreenRecording')) win.setContentProtection(true); } catch (_) {}
   setBounds(n, 'closed');
   setTimeout(() => { if (alive(n) && n.state === 'closed') setBounds(n, 'closed'); }, 300);
-  win.on('closed', () => { const i = notches.indexOf(n); if (i >= 0) notches.splice(i, 1); });
+  win.on('closed', () => { try { unpinFromSpace(win, n.cgsSpace); } catch (_) {} const i = notches.indexOf(n); if (i >= 0) notches.splice(i, 1); });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   win.webContents.on('did-finish-load', () => {
     setBounds(n, 'closed');
-    DIAG('[stationary load] ' + JSON.stringify(applyStationary(win))); // re-assertion apres affichage
+    applyStationary(win); // base (collectionBehavior)
+    // Correctif du "disparait pendant le swipe de Bureau" : injecte la fenetre dans
+    // un Space CGS dedie, hors du systeme d'espaces "managed" qui est aplati pendant
+    // l'animation de swipe. Une seule injection suffit (le space suit la fenetre).
+    if (!n.cgsSpace) { n.cgsSpace = pinToSpace(win); DIAG('[cgs-space] pin -> ' + n.cgsSpace); }
     sendGeometry(n);
     win.webContents.send('self-info', { ip: net.localIPv4(), inbox: inboxDir, host: os.hostname() });
     win.webContents.send('prefs', getPrefs());
