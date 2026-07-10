@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Le wrapper porte l'ombre (drop-shadow suit la silhouette clip-path) -->
+  <div id="shadow-wrap">
+    <!-- La forme noire de l'encoche : taille + clip-path animes par le spring JS -->
+    <div id="notch">
+      <!-- Activite fermee : pochette (gauche) + spectre anime (droite) qui flanquent
+           l'encoche pendant la lecture (facon Boring Notch, encoche fermee). -->
+      <div id="live-left"><img id="live-art" alt="" /></div>
+      <div id="live-right"><div class="spectrum"><span></span><span></span><span></span><span></span></div></div>
+
+      <!-- HUD volume/luminosite (etat ferme transitoire) : icone + barre. -->
+      <div id="hud">
+        <span id="hud-icon"></span>
+        <div id="hud-bar"><div id="hud-fill"></div></div>
+        <span id="hud-pct"></span>
+      </div>
+
+      <!-- Contenu ouvert : fixe 640x190, revele par le clip de la forme -->
+      <div id="open-view">
+        <header id="header">
+          <div class="h-left">
+            <nav id="tabs"></nav>
+          </div>
+          <div class="h-center"></div>
+          <div class="h-right">
+            <div id="peer-chip" hidden title="PC connecte — depose un fichier ici pour l'envoyer">
+              <span class="peer-dot"></span>
+              <span id="peer-chip-name"></span>
+            </div>
+            <div id="battery" hidden>
+              <span id="battery-pct"></span>
+              <div class="batt-body"><div class="batt-fill" id="batt-fill"></div><span class="batt-bolt" id="batt-bolt" hidden></span></div>
+              <div class="batt-cap"></div>
+            </div>
+            <button id="gear-btn" class="header-capsule" title="Reglages"></button>
+          </div>
+        </header>
+
+        <main id="views">
+          <!-- Vue Home : lecteur musique (gauche) + calendrier (droite), layout NotchHomeView -->
+          <section id="view-home">
+            <div id="home-media">
+              <div id="album-art" class="not-playing"><img id="home-art" alt="" /></div>
+              <div id="music-controls">
+                <div id="song-title">Aucune lecture</div>
+                <div id="song-artist">NotchDrop</div>
+                <div id="slider-block">
+                  <div id="slider-track"><div id="slider-fill"></div></div>
+                  <div id="timestamps"><span id="ts-cur">0:00</span><span id="ts-dur">0:00</span></div>
+                </div>
+                <div id="music-buttons"></div>
+              </div>
+            </div>
+            <div id="home-calendar" hidden>
+              <div id="cal-header"></div>
+              <div id="cal-list"></div>
+            </div>
+          </section>
+
+          <!-- Vue Shelf : AirDrop + PC (façon FileShareView) + panneau pointille (ShelfView) -->
+          <section id="view-shelf" hidden>
+            <div class="share-zone" id="share-airdrop" hidden>
+              <svg class="dashed-border" preserveAspectRatio="none"><rect rx="12" ry="12"/></svg>
+              <div class="share-circle"></div>
+              <div class="share-label">AirDrop</div>
+            </div>
+            <div id="shelf-panel">
+              <svg class="dashed-border" preserveAspectRatio="none"><rect rx="16" ry="16"/></svg>
+              <button id="clear-shelf" title="Vider le shelf" hidden></button>
+              <div id="shelf-empty">
+                <div class="empty-icon"></div>
+                <div class="empty-text">Drop files here</div>
+              </div>
+              <div id="shelf-scroll"><div id="shelf-row"></div></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <script src="icons.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>

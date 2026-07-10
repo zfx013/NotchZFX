@@ -1,0 +1,55 @@
+{
+  "name": "notchzfx",
+  "productName": "NotchZFX",
+  "version": "0.1.0",
+  "description": "Une encoche interactive facon Dynamic Island pour macOS, avec etagere de fichiers, lecteur media, calendrier, HUD volume/luminosite et synchro de fichiers Mac/PC par le reseau local.",
+  "main": "src/main/main.js",
+  "author": "zfx013",
+  "license": "MIT",
+  "homepage": "https://zfx013.github.io/NotchZFX/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zfx013/NotchZFX.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "package:mac": "bash scripts/package-mac.sh",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "electron": "43.1.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.zfx.notchzfx",
+    "productName": "NotchZFX",
+    "artifactName": "NotchZFX-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!src/main/*.app",
+      "!**/*.swift",
+      "!**/build-*.sh"
+    ],
+    "win": {
+      "target": ["nsis", "zip"],
+      "icon": "assets/NotchZFX-1024.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Utility",
+      "icon": "assets/NotchZFX-1024.png"
+    }
+  }
+}

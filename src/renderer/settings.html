@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    />
+    <title>Paramètres NotchDrop</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <!-- Barre laterale : degrade pastel + zone haut draggable (feux macOS) -->
+      <aside class="sidebar">
+        <div class="sidebar-drag"></div>
+        <nav id="sidebar-nav" class="sidebar-nav"></nav>
+      </aside>
+
+      <!-- Zone de contenu : titre de page + cartes de sections -->
+      <main id="content" class="content"></main>
+    </div>
+
+    <script src="settings-schema.js"></script>
+    <script src="settings-components.js"></script>
+    <script src="settings-shell.js"></script>
+  </body>
+</html>

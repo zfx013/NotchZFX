@@ -1,0 +1,21 @@
+# Dépendances
+node_modules/
+
+# Builds / sorties
+dist/
+out/
+release/
+*.dmg
+*.zip
+*.AppImage
+*.deb
+*.exe
+*.blockmap
+
+# Helpers natifs compilés (recompilés au besoin par les build-*.sh)
+src/main/*.app/
+
+# Divers
+*.log
+.DS_Store
+.env

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NotchZFX — l'encoche interactive pour macOS</title>
+<meta name="description" content="Encoche interactive façon Dynamic Island : étagère de fichiers, lecteur média, calendrier, HUD volume/luminosité, et synchro Mac ⇄ PC." />
+<link rel="icon" href="img/icon.png" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --accent: #8b7bff; --accent2: #ff7eb6; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+    color: #eef0f6; background: #0a0a12;
+    background-image: radial-gradient(1200px 600px at 50% -200px, rgba(139,123,255,0.28), transparent 70%),
+                      radial-gradient(900px 500px at 90% 10%, rgba(255,126,182,0.14), transparent 60%);
+    line-height: 1.55; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 22px; }
+  a { color: inherit; }
+
+  /* Hero */
+  header.hero { text-align: center; padding: 78px 0 40px; }
+  .app-icon { width: 132px; height: 132px; border-radius: 30px; box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06); }
+  h1 { font-size: 58px; font-weight: 800; letter-spacing: -0.03em; margin: 22px 0 6px; }
+  .tagline { font-size: 19px; color: #b9bdd0; max-width: 620px; margin: 0 auto 8px; }
+  .subnote { font-size: 14px; color: #7e829a; }
+
+  /* Downloads */
+  .downloads { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; margin: 34px 0 8px; }
+  .dl {
+    display: inline-flex; align-items: center; gap: 11px;
+    padding: 14px 22px; border-radius: 14px; text-decoration: none; font-weight: 600; font-size: 15px;
+    background: linear-gradient(180deg, #22223a, #16162a); border: 1px solid rgba(255,255,255,0.08);
+    transition: transform .15s ease, border-color .15s ease, background .15s ease; min-width: 210px; justify-content: center;
+  }
+  .dl:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .dl.primary { background: linear-gradient(180deg, #8b7bff, #6a5bff); border-color: transparent; }
+  .dl .os { font-size: 22px; }
+  .dl small { display: block; font-weight: 500; font-size: 11.5px; color: #9aa0bd; }
+  .dl.primary small { color: #e7e4ff; }
+  .allver { text-align: center; margin-top: 14px; font-size: 14px; }
+  .allver a { color: var(--accent); text-decoration: none; }
+  .allver a:hover { text-decoration: underline; }
+
+  /* Showcase */
+  .shot { margin: 48px auto; border-radius: 16px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); box-shadow: 0 24px 70px rgba(0,0,0,0.55); background: #000; }
+  .shot img { width: 100%; display: block; }
+  .shot-cap { text-align: center; color: #7e829a; font-size: 13px; margin-top: -34px; margin-bottom: 48px; }
+
+  /* Features */
+  section { padding: 40px 0; }
+  h2 { text-align: center; font-size: 32px; font-weight: 800; letter-spacing: -0.02em; margin-bottom: 30px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+  .card { background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 20px; }
+  .card .ic { font-size: 26px; }
+  .card h3 { font-size: 16px; margin: 10px 0 5px; }
+  .card p { font-size: 14px; color: #aab0c7; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: center; }
+  .two img { width: 100%; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } h1 { font-size: 42px; } }
+
+  footer { text-align: center; padding: 50px 0 60px; color: #6c7089; font-size: 13.5px; border-top: 1px solid rgba(255,255,255,0.06); margin-top: 40px; }
+  footer a { color: var(--accent); text-decoration: none; }
+  .badge { display:inline-block; margin-top:10px; padding:4px 10px; border:1px solid rgba(255,255,255,0.12); border-radius:999px; font-size:12px; color:#b9bdd0; }
+</style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <img class="app-icon" src="img/icon.png" alt="NotchZFX" />
+      <h1>NotchZFX <span style="font-size:0.6em">😉</span></h1>
+      <p class="tagline">L'encoche interactive façon Dynamic Island pour macOS — étagère de fichiers, lecteur média, calendrier et HUD volume/luminosité, plus la synchro de fichiers Mac ⇄ PC sur le réseau local.</p>
+      <p class="subnote">Gratuit et open-source · MIT</p>
+
+      <div class="downloads">
+        <a class="dl primary" id="dl-mac" href="https://github.com/zfx013/NotchZFX/releases">
+          <span class="os">🍎</span><span>Télécharger pour macOS<small id="mac-note">Apple Silicon · .dmg</small></span>
+        </a>
+        <a class="dl" id="dl-win" href="https://github.com/zfx013/NotchZFX/releases">
+          <span class="os">🪟</span><span>Windows<small id="win-note">Installateur .exe</small></span>
+        </a>
+        <a class="dl" id="dl-linux" href="https://github.com/zfx013/NotchZFX/releases">
+          <span class="os">🐧</span><span>Linux<small id="linux-note">.AppImage · .deb</small></span>
+        </a>
+      </div>
+      <div class="allver">
+        <a href="https://github.com/zfx013/NotchZFX/releases">Toutes les versions & notes de version →</a>
+        <div class="badge" id="ver-badge">Dernière version : chargement…</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="shot">
+      <img src="img/notch-home.png" alt="Encoche ouverte : lecteur média + calendrier" />
+    </div>
+    <p class="shot-cap">Encoche ouverte — lecteur média (pochette, contrôles) et calendrier du jour.</p>
+  </div>
+
+  <section class="wrap">
+    <h2>Ce que ça fait</h2>
+    <div class="grid">
+      <div class="card"><div class="ic">📥</div><h3>Étagère de fichiers</h3><p>Glisse des fichiers vers l'encoche : ils s'y posent. Multi-sélection au lasso, glisser-déposer sortant.</p></div>
+      <div class="card"><div class="ic">📸</div><h3>AirDrop & captures</h3><p>Les AirDrop reçus et tes captures d'écran se copient automatiquement dans l'étagère.</p></div>
+      <div class="card"><div class="ic">🎵</div><h3>Lecteur média</h3><p>Pochette, titre, artiste, progression et contrôles play/pause/suivant (Spotify & Apple Music).</p></div>
+      <div class="card"><div class="ic">📊</div><h3>Activité musicale</h3><p>Pochette + spectre animé de chaque côté de l'encoche fermée pendant la lecture.</p></div>
+      <div class="card"><div class="ic">🔊</div><h3>HUD volume / luminosité</h3><p>Remplace la jauge native de macOS par une jauge élégante dans l'encoche.</p></div>
+      <div class="card"><div class="ic">📅</div><h3>Calendrier</h3><p>Tes événements du jour directement dans l'encoche, via EventKit.</p></div>
+      <div class="card"><div class="ic">🔁</div><h3>Synchro Mac ⇄ PC</h3><p>Envoie des fichiers à un pair sur le réseau local, découverte automatique.</p></div>
+      <div class="card"><div class="ic">🖥️</div><h3>Multi-écran</h3><p>Une encoche par écran, fine et discrète sur les moniteurs externes.</p></div>
+      <div class="card"><div class="ic">⚙️</div><h3>Paramètres complets</h3><p>11 pages de réglages : tout est personnalisable.</p></div>
+    </div>
+  </section>
+
+  <section class="wrap">
+    <div class="two">
+      <img src="img/settings.png" alt="Fenêtre Paramètres" />
+      <div>
+        <h2 style="text-align:left">Réglable au pixel près</h2>
+        <p style="color:#aab0c7">Une fenêtre Paramètres complète, fidèle aux meilleures apps d'encoche : apparence, média, calendrier, HUDs, batterie, étagère, raccourcis, et plus.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      Fait avec 😉 — <a href="https://github.com/zfx013/NotchZFX">github.com/zfx013/NotchZFX</a><br />
+      Licence MIT · Les fonctions natives (encoche de drop, HUD, calendrier) sont spécifiques à macOS.
+    </div>
+  </footer>
+
+  <script>
+    // Récupère la dernière release et pointe chaque bouton vers le bon fichier.
+    (async () => {
+      const REPO = 'zfx013/NotchZFX';
+      const pageFallback = 'https://github.com/' + REPO + '/releases';
+      try {
+        const r = await fetch('https://api.github.com/repos/' + REPO + '/releases/latest');
+        if (!r.ok) throw new Error('no release');
+        const data = await r.json();
+        const assets = data.assets || [];
+        const find = (re) => (assets.find(a => re.test(a.name)) || {}).browser_download_url;
+        const mac = find(/\.dmg$/i) || find(/mac.*\.zip$/i);
+        const win = find(/\.exe$/i) || find(/win.*\.zip$/i);
+        const linux = find(/\.AppImage$/i) || find(/\.deb$/i);
+        if (mac) document.getElementById('dl-mac').href = mac;
+        if (win) document.getElementById('dl-win').href = win;
+        if (linux) document.getElementById('dl-linux').href = linux;
+        const badge = document.getElementById('ver-badge');
+        badge.textContent = 'Dernière version : ' + (data.tag_name || '—');
+      } catch (e) {
+        document.getElementById('ver-badge').textContent = 'Aucune release publiée pour le moment';
+        for (const id of ['dl-mac','dl-win','dl-linux']) document.getElementById(id).href = pageFallback;
+      }
+    })();
+  </script>
+</body>
+</html>
