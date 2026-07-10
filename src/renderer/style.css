@@ -289,10 +289,10 @@ html, body {
 
 /* Visualiseur audio (facon Boring Notch) : barres FINES et NOMBREUSES, chacune
    avec sa propre duree + amplitude + phase -> mouvement organique, non synchronise. */
-.spectrum { display: flex; align-items: flex-end; justify-content: center; gap: 2px; height: 17px; }
+.spectrum { display: flex; align-items: center; justify-content: center; gap: 2px; height: 17px; }
 .spectrum span {
   width: 2px; height: 100%; background: #fff; border-radius: 1px;
-  transform-origin: bottom;
+  transform-origin: center; /* grandit/retrecit depuis le MILIEU (haut + bas), pas depuis le bas */
 }
 .spectrum span:nth-child(1) { animation: eqA 0.68s -0.10s ease-in-out infinite; }
 .spectrum span:nth-child(2) { animation: eqB 0.92s -0.45s ease-in-out infinite; }

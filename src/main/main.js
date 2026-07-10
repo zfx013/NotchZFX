@@ -20,6 +20,7 @@ const { startDragMonitor } = require('./dragDaemon');
 const mediaLib = require('./media');
 const { getCalendar, buildCalendarHelper } = require('./calendarDaemon');
 const { startHudMonitor } = require('./hudDaemon');
+const { applyStationary } = require('./macWindow');
 
 // Dossier userData FIXE "NotchZFX" (+ migration depuis les anciens noms) : le nom
 // du bundle peut changer sans perdre l'etagere ni les preferences.
@@ -479,6 +480,9 @@ function createNotch(display) {
   // l'app est deja un agent (dock cache) -> evite de changer le type de process a
   // chaque appel (source de clignotement lors des transitions de Space).
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  // .stationary : empeche la fenetre de glisser (donc de disparaitre) pendant les
+  // transitions de Bureau / Mission Control. Electron ne l'expose pas -> pose FFI.
+  applyStationary(win);
   try { if (prefsStore && prefsStore.get('hideFromScreenRecording')) win.setContentProtection(true); } catch (_) {}
   setBounds(n, 'closed');
   setTimeout(() => { if (alive(n) && n.state === 'closed') setBounds(n, 'closed'); }, 300);
@@ -487,6 +491,7 @@ function createNotch(display) {
 
   win.webContents.on('did-finish-load', () => {
     setBounds(n, 'closed');
+    applyStationary(win); // re-assertion (Electron peut reinitialiser le comportement a l'affichage)
     sendGeometry(n);
     win.webContents.send('self-info', { ip: net.localIPv4(), inbox: inboxDir, host: os.hostname() });
     win.webContents.send('prefs', getPrefs());
