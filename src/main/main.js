@@ -560,16 +560,12 @@ function createNotch(display) {
   try { if (prefsStore && prefsStore.get('hideFromScreenRecording')) win.setContentProtection(true); } catch (_) {}
   setBounds(n, 'closed');
   setTimeout(() => { if (alive(n) && n.state === 'closed') setBounds(n, 'closed'); }, 300);
-  win.on('closed', () => { try { unpinFromSpace(win, n.cgsSpace); } catch (_) {} const i = notches.indexOf(n); if (i >= 0) notches.splice(i, 1); });
+  win.on('closed', () => { const i = notches.indexOf(n); if (i >= 0) notches.splice(i, 1); });
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   win.webContents.on('did-finish-load', () => {
     setBounds(n, 'closed');
-    applyStationary(win); // base (collectionBehavior)
-    // Correctif du "disparait pendant le swipe de Bureau" : injecte la fenetre dans
-    // un Space CGS dedie, hors du systeme d'espaces "managed" qui est aplati pendant
-    // l'animation de swipe. Une seule injection suffit (le space suit la fenetre).
-    if (!n.cgsSpace) { n.cgsSpace = pinToSpace(win); DIAG('[cgs-space] pin -> ' + n.cgsSpace); }
+    applyStationary(win); // base collectionBehavior (sans effet de bord)
     sendGeometry(n);
     win.webContents.send('self-info', { ip: net.localIPv4(), inbox: inboxDir, host: os.hostname() });
     win.webContents.send('prefs', getPrefs());
