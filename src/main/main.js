@@ -21,6 +21,7 @@ const { startDragMonitor } = require('./dragDaemon');
 const mediaLib = require('./media');
 const { getCalendar, buildCalendarHelper } = require('./calendarDaemon');
 const { startHudMonitor } = require('./hudDaemon');
+const { startMediaKeys } = require('./mediaKeyDaemon');
 const { applyStationary, pinToSpace, reinjectSpace, unpinFromSpace } = require('./macWindow');
 
 // Dossier userData FIXE "NotchZFX" (+ migration depuis les anciens noms) : le nom
@@ -83,8 +84,29 @@ const getPrefs = () => (prefsStore ? prefsStore.all() : {});
 let mediaHandle = null;
 let lastMedia = null;
 let hudHandle = null;
+let mediaKeysHandle = null;
+let accessibilityStatus = null;   // 'ok' | 'need-accessibility'
+let accessibilityPrompted = false;
 let calendarData = null;
 let calendarTimer = null;
+
+// Guide l'utilisateur pour accorder l'Accessibilite au helper d'interception de
+// touches (une fois par session ; une fois accordee, l'interception reprend seule).
+function promptAccessibilityOnce() {
+  if (accessibilityPrompted) return;
+  accessibilityPrompted = true;
+  try {
+    const { Notification } = require('electron');
+    if (Notification.isSupported()) {
+      const n = new Notification({
+        title: 'NotchZFX — masquer les jauges natives',
+        body: "Active « NotchZFX MediaKeys » dans Reglages > Confidentialite et securite > Accessibilite. Clique ici pour ouvrir.",
+      });
+      n.on('click', () => { try { shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'); } catch (_) {} });
+      n.show();
+    }
+  } catch (_) {}
+}
 
 // ---- Diagnostic (temporaire) : journalise dans userData/diag.log ----
 function DIAG(msg) {
@@ -397,29 +419,12 @@ function hudTargetNotch() {
   if (alive(n) && !n.fixed && !n.geo.simulated) return n;
   return liveNotches().find((x) => x.display.internal && !x.geo.simulated) || null;
 }
-function suppressNativeOsd() {
-  // Masque la jauge NATIVE de macOS (volume/luminosite) : on tue OSDUIHelper, le
-  // process qui la dessine. Notre detection arrive juste APRES son apparition et
-  // OSDUIHelper peut se relancer -> on le retue en rafale sur ~0.7 s. Chemin ABSOLU
-  // car une app lancee par le Finder a un PATH restreint (killall nu introuvable).
-  const kill = () => { try { execFile('/usr/bin/killall', ['-9', 'OSDUIHelper'], () => {}); } catch (_) {} };
-  kill();
-  let n = 0;
-  const t = setInterval(() => { kill(); if (++n >= 40) clearInterval(t); }, 35);
-  // DIAG : sur macOS 26 OSDUIHelper n'est pas le renderer. On capture les process qui
-  // APPARAISSENT 250 ms apres le changement (le renderer de la jauge s'y trouvera),
-  // et on note les fenetres/overlays candidats deja lances.
-  try {
-    const snap = (cb) => execFile('/bin/ps', ['-Axo', 'comm'], (e, out) => cb(new Set((out || '').split('\n').map((s) => s.trim().split('/').pop()).filter(Boolean))));
-    snap((before) => setTimeout(() => snap((after) => {
-      const nw = [...after].filter((x) => !before.has(x));
-      DIAG('[osd-newprocs] ' + (nw.length ? nw.join(', ') : '(aucun nouveau process -> renderer deja lance, ex. ControlCenter/WindowServer)'));
-    }), 250));
-  } catch (_) {}
-}
+// NB : sur macOS 26 la jauge native (OSD) est dessinee IN-PROCESS par ControlCenter
+// (impossible a tuer : SIP). La suppression se fait donc en amont, en CONSOMMANT les
+// touches media via l'intercepteur (mediaKeyDaemon + MediaKeyInterceptor.app) — pas
+// ici. showHud ne fait plus qu'afficher NOTRE HUD.
 function showHud(kind, value, muted) {
   if (!prefsStore || !prefsStore.get('replaceSystemHUD')) return;
-  suppressNativeOsd();
   const n = hudTargetNotch();
   if (!alive(n)) return;
   n.hudActive = true;
@@ -732,6 +737,21 @@ app.whenReady().then(async () => {
     onLog: () => {},
   });
 
+  // Intercepteur de touches media : consomme volume/luminosite pour SUPPRIMER la
+  // jauge native (macOS 26 la dessine in-process dans ControlCenter -> pas tuable).
+  // Necessite la permission Accessibilite ; on guide l'utilisateur si absente.
+  if (!prefsStore || prefsStore.get('replaceSystemHUD')) {
+    mediaKeysHandle = startMediaKeys({
+      onStatus: (st) => {
+        accessibilityStatus = st;
+        DIAG('[mediakeys] status=' + st);
+        if (st === 'need-accessibility') promptAccessibilityOnce();
+      },
+      onKey: () => {}, // le changement est applique par le helper ; le HUDMonitor affiche le HUD
+      onLog: () => {},
+    });
+  }
+
   // Calendrier (EventKit via helper compile) : pre-build + 1er chargement + refresh.
   buildCalendarHelper().catch(() => {});
   refreshCalendar();
@@ -1029,5 +1049,6 @@ app.on('will-quit', () => {
   if (dragDaemon) dragDaemon.kill();
   if (mediaHandle) mediaHandle.stop();
   if (hudHandle) hudHandle.kill();
+  if (mediaKeysHandle) mediaKeysHandle.kill();
   if (calendarTimer) clearInterval(calendarTimer);
 });

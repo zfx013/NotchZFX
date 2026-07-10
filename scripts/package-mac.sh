@@ -56,6 +56,13 @@ setkey string NSRemindersFullAccessUsageDescription "NotchZFX affiche tes rappel
 echo "==> Icone"
 [ -f "$ICON" ] && cp "$ICON" "$OUT/Contents/Resources/icon.icns" || echo "  (pas d'icone $ICON, on garde celle d'Electron)"
 
+# Compile les helpers natifs Swift (.app non versionnes -> a construire ici pour que
+# le bundle packagé les embarque, y compris en CI sur un clone frais).
+echo "==> Compilation des helpers natifs (Swift .app)"
+for b in build-hud.sh build-catcher.sh build-calendar.sh build-mediakeys.sh; do
+  [ -f "$SRC/src/main/$b" ] && bash "$SRC/src/main/$b" >/dev/null 2>&1 && echo "  ok $b" || echo "  (echec/absent $b)"
+done
+
 echo "==> Copie du code de l'app dans Resources/app"
 APPRES="$OUT/Contents/Resources/app"
 mkdir -p "$APPRES"
