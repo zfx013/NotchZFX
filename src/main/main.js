@@ -672,7 +672,13 @@ app.whenReady().then(async () => {
   // Serveur de reception : non bloquant, avec nouvelle tentative si le port est pris.
   // On depose sur l'encoche de l'ecran actif ; les autres se synchronisent via le
   // broadcast de sauvegarde du shelf.
-  const onFileReceived = (savedPath, name) => {
+  const onFileReceived = (savedPath, name, intent) => {
+    // Fichier relaye depuis le PC pour AirDrop : sur le Mac, on ouvre directement le
+    // panneau AirDrop avec ce fichier (au lieu de l'ajouter au shelf).
+    if (intent === 'airdrop' && process.platform === 'darwin' && airdropPaths([savedPath])) {
+      openActiveNotch('home', 1500);
+      return;
+    }
     const n = notchAtCursor();
     if (alive(n)) n.win.webContents.send('file-received', { path: savedPath, name });
     openActiveNotch('shelf', 3000);
@@ -876,18 +882,28 @@ ipcMain.on('panel-menu', (e) => {
 // AirDrop DIRECT (pas le menu de partage complet) : on delegue a l'app native
 // DragCatcher qui appelle NSSharingService(.sendViaAirDrop) -> ouvre directement
 // le panneau AirDrop ou l'utilisateur n'a qu'a choisir le destinataire.
-ipcMain.on('airdrop', (_e, { paths }) => {
-  if (process.platform !== 'darwin' || !paths || !paths.length) return;
+function airdropPaths(paths) {
+  if (process.platform !== 'darwin' || !paths || !paths.length) return false;
   if (!dragDaemon || !dragDaemon.stdin || !dragDaemon.stdin.writable) {
     console.warn('AirDrop indisponible : attrapeur natif absent');
-    return;
+    return false;
   }
   try {
     const b64 = Buffer.from(JSON.stringify(paths)).toString('base64');
     dragDaemon.stdin.write('AIRDROP\t' + b64 + '\n');
+    return true;
   } catch (err) {
     console.warn('AirDrop echoue:', err.message);
+    return false;
   }
+}
+ipcMain.on('airdrop', (_e, { paths }) => airdropPaths(paths));
+
+// Relais AirDrop depuis le PC : on envoie chaque fichier au pair (Mac) avec l'intent
+// 'airdrop'. A l'arrivee, le Mac ouvre le panneau AirDrop (cf. onFileReceived).
+ipcMain.on('airdrop-via-peer', (_e, { paths }) => {
+  if (!peerIp || !paths || !paths.length) return;
+  paths.forEach((p) => net.sendFile(peerIp, p, 'airdrop').catch((err) => console.warn('relais AirDrop echoue:', err.message)));
 });
 
 // Menu de partage complet (autres services) — conserve au cas ou.

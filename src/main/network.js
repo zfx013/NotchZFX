@@ -27,6 +27,7 @@ function startServer(inboxDir, onFile) {
 
   app.post('/drop', (req, res) => {
     let dest;
+    const intent = req.get('x-intent') || null; // ex. 'airdrop' -> relais AirDrop cote Mac
     try {
       const rawName = decodeURIComponent(req.get('x-filename') || `fichier-${Date.now()}`);
       dest = uniquePath(path.join(inboxDir, sanitizeName(path.basename(rawName))));
@@ -47,7 +48,7 @@ function startServer(inboxDir, onFile) {
     ws.on('error', (err) => abort(500, err));
     ws.on('finish', () => {
       if (failed) return;
-      onFile(dest, path.basename(dest));
+      onFile(dest, path.basename(dest), intent);
       res.json({ ok: true });
     });
     req.pipe(ws);
@@ -63,7 +64,8 @@ function startServer(inboxDir, onFile) {
 }
 
 // Envoi d'un fichier en STREAMING (http.request + createReadStream).
-function sendFile(peerIp, filePath) {
+// intent (optionnel) : 'airdrop' -> le pair (Mac) relaiera vers AirDrop a l'arrivee.
+function sendFile(peerIp, filePath, intent) {
   return new Promise((resolve, reject) => {
     let stat;
     try {
@@ -76,11 +78,11 @@ function sendFile(peerIp, filePath) {
       port: FILE_PORT,
       path: '/drop',
       method: 'POST',
-      headers: {
+      headers: Object.assign({
         'content-type': 'application/octet-stream',
         'content-length': stat.size,
         'x-filename': encodeURIComponent(path.basename(filePath)),
-      },
+      }, intent ? { 'x-intent': intent } : {}),
       timeout: 15000, // inactivite socket (le timer se reamorce a chaque octet)
     }, (res) => {
       res.resume();

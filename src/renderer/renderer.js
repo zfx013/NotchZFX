@@ -400,7 +400,12 @@ const peerChip = $('peer-chip');
 airdropZone.querySelector('.share-circle').appendChild(icon('airdrop'));
 document.querySelector('#shelf-empty .empty-icon').appendChild(icon('tray.and.arrow.down'));
 $('clear-shelf').appendChild(icon('xmark'));
-if (window.notch.platform === 'darwin') airdropZone.hidden = false;
+// AirDrop dispo partout : Mac = natif ; PC = relais via le Mac (choix sur le Mac).
+airdropZone.hidden = false;
+if (window.notch.platform !== 'darwin') {
+  const lbl = airdropZone.querySelector('.share-label');
+  if (lbl) lbl.textContent = 'AirDrop via Mac';
+}
 
 // ---- Shelf : etat + selection multiple ----
 const rowEl = $('shelf-row');
@@ -675,8 +680,14 @@ async function sendToPeer(paths) {
 
 function shareViaAirdrop(paths) {
   if (!paths.length) return;
-  // Ouvre directement le panneau AirDrop (choix du destinataire), pas le menu complet.
-  window.notch.airdrop(paths);
+  if (window.notch.platform === 'darwin') {
+    // Mac : ouvre directement le panneau AirDrop natif (choix du destinataire).
+    window.notch.airdrop(paths);
+  } else {
+    // PC : AirDrop impossible nativement -> on relaie au Mac, qui ouvrira son panneau
+    // AirDrop avec le fichier (le choix du destinataire se fait sur le Mac).
+    window.notch.airdropViaPeer(paths);
+  }
 }
 
 // ---- Drag & drop ----

@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('notch', {
   // Partage systeme (AirDrop) + selecteur de fichiers
   shareMenu: (paths, x, y) => ipcRenderer.send('share-menu', { paths, x, y }),
   airdrop: (paths) => ipcRenderer.send('airdrop', { paths }),
+  airdropViaPeer: (paths) => ipcRenderer.send('airdrop-via-peer', { paths }),
   pickFiles: () => ipcRenderer.invoke('pick-files'),
   saveText: (text) => ipcRenderer.invoke('save-text', text),
 
