@@ -413,7 +413,7 @@ function startScreenshotWatch(onShot) {
 }
 
 // ---- HUD volume / luminosite : agrandit brievement l'encoche de l'ecran actif ----
-const HUD_WIN = { w: 286, h: 104 };
+const HUD_WIN = { w: 286, h: 86 };
 function hudTargetNotch() {
   const n = notchAtCursor();
   if (alive(n) && !n.fixed && !n.geo.simulated) return n;

@@ -323,7 +323,7 @@ function renderMedia(m) {
 window.notch.onMedia(renderMedia);
 
 // ---- HUD volume / luminosite (etat ferme transitoire) ----
-const HUD_DIMS = { w: 250, h: 78, tr: 12, br: 26 };
+const HUD_DIMS = { w: 250, h: 62, tr: 12, br: 22 };
 window.notch.onHud((h) => {
   if (simulated) return; // pas de HUD sur l'encoche externe fine
   if (h && h.visible) {
