@@ -22,7 +22,7 @@ const mediaLib = require('./media');
 const { getCalendar, buildCalendarHelper } = require('./calendarDaemon');
 const { startHudMonitor } = require('./hudDaemon');
 const { startMediaKeys } = require('./mediaKeyDaemon');
-const { applyStationary, pinToSpace, reinjectSpace, unpinFromSpace } = require('./macWindow');
+const { applyStationary } = require('./macWindow');
 
 // Dossier userData FIXE "NotchZFX" (+ migration depuis les anciens noms) : le nom
 // du bundle peut changer sans perdre l'etagere ni les preferences.
@@ -108,11 +108,6 @@ function promptAccessibilityOnce() {
   } catch (_) {}
 }
 
-// ---- Diagnostic (temporaire) : journalise dans userData/diag.log ----
-function DIAG(msg) {
-  try { fs.appendFileSync(path.join(app.getPath('userData'), 'diag.log'), msg + '\n'); } catch (_) {}
-}
-
 // ---- Couleur dominante de la pochette (pour teinter le spectre) ----
 // L'artwork Spotify est une URL distante -> on la telecharge cote main (pas de
 // restriction CORS ici), on decode via nativeImage et on calcule une couleur VIVE
@@ -126,7 +121,7 @@ function computeArtColor(url, cb) {
   let req;
   try {
     req = https.get(url, { timeout: 4000 }, (res) => {
-      if (res.statusCode !== 200) { DIAG(`[artcolor] HTTP ${res.statusCode} pour ${url}`); res.resume(); return finish(null); }
+      if (res.statusCode !== 200) { res.resume(); return finish(null); }
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => {
@@ -153,7 +148,6 @@ function computeArtColor(url, cb) {
           if (mx > 0 && mx < 170) { const k = 170 / mx; R *= k; G *= k; B *= k; } // rehausse la luminosite
           const hex = '#' + [R, G, B].map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
           artColorCache = { url, color: hex };
-          DIAG(`[artcolor] ${hex} <- ${url}`);
           finish(hex);
         } catch (_) { finish(null); }
       });
@@ -558,7 +552,7 @@ function createNotch(display) {
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
   // .stationary : empeche la fenetre de glisser (donc de disparaitre) pendant les
   // transitions de Bureau / Mission Control. Electron ne l'expose pas -> pose FFI.
-  DIAG('[stationary create] ' + JSON.stringify(applyStationary(win)));
+  applyStationary(win);
   try { if (prefsStore && prefsStore.get('hideFromScreenRecording')) win.setContentProtection(true); } catch (_) {}
   setBounds(n, 'closed');
   setTimeout(() => { if (alive(n) && n.state === 'closed') setBounds(n, 'closed'); }, 300);
@@ -742,7 +736,6 @@ app.whenReady().then(async () => {
     mediaKeysHandle = startMediaKeys({
       onStatus: (st) => {
         accessibilityStatus = st;
-        DIAG('[mediakeys] status=' + st);
         if (st === 'need-accessibility') promptAccessibilityOnce();
       },
       onKey: () => {}, // le changement est applique par le helper ; le HUDMonitor affiche le HUD
