@@ -19,3 +19,4 @@ src/main/*.app/
 *.log
 .DS_Store
 .env
+updater-token.json

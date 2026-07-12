@@ -14,6 +14,7 @@ const https = require('https');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const net = require('./network');
+const updater = require('./updater');
 const { baseGeometry, probeMacNotch } = require('./geometry');
 const { ShelfStore } = require('./shelfStore');
 const { PrefsStore } = require('./prefsStore');
@@ -960,6 +961,12 @@ app.whenReady().then(async () => {
     calendarTimer = setInterval(refreshCalendar, 5 * 60 * 1000);
   }
 
+  // Verification de mise a jour au demarrage (toutes plateformes) : notification
+  // cliquable si une version plus recente existe.
+  if ((!prefsStore || prefsStore.get('autoCheckUpdates')) && updater.hasToken()) {
+    setTimeout(() => { notifyIfUpdate(); }, 8000);
+  }
+
   // Debounce : les transitions (Bureau/Mission Control/plein ecran) emettent des
   // rafales de display-metrics-changed ; on les coalesce pour ne pas repositionner
   // l'encoche a repetition (clignotement).
@@ -1324,7 +1331,61 @@ ipcMain.on('clear-shelf', () => clearLibrary(true));
 ipcMain.on('library-clear', () => clearLibrary(true));
 ipcMain.on('open-inbox', () => shell.openPath(inboxDir));
 ipcMain.on('open-external', (_e, url) => { if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url); });
-ipcMain.handle('check-updates', () => { shell.openExternal('https://github.com'); return { ok: true }; });
+// ---- Mise a jour integree (Releases GitHub, repo prive + token lecture seule) ----
+let updating = false;
+function setUpdateProgress(p) {
+  for (const n of notches) { if (alive(n)) try { n.win.setProgressBar(p); } catch (_) {} }
+}
+async function runUpdateFlow(interactive) {
+  if (updating) return;
+  if (!updater.hasToken()) {
+    if (interactive) dialog.showMessageBox({ type: 'info', message: 'Mise a jour indisponible',
+      detail: "Cette version n'a pas de token de mise a jour integre." });
+    return;
+  }
+  let info;
+  try { info = await updater.checkForUpdate(); }
+  catch (err) {
+    if (interactive) dialog.showMessageBox({ type: 'warning', message: 'Verification impossible', detail: String(err.message) });
+    return;
+  }
+  if (!info.available) {
+    if (interactive) dialog.showMessageBox({ type: 'info', message: 'NotchZFX est a jour', detail: 'Version ' + info.current + ' — c\'est la derniere.' });
+    return;
+  }
+  const r = await dialog.showMessageBox({
+    type: 'info', buttons: ['Plus tard', 'Installer et redemarrer'], defaultId: 1, cancelId: 0,
+    message: `Mise a jour disponible : ${info.latest}`,
+    detail: `Tu as la ${info.current}. Telecharger la ${info.latest} (${(info.asset.size / 1048576).toFixed(0)} Mo), l'installer et redemarrer ?`,
+  });
+  if (r.response !== 1) return;
+  updating = true;
+  try {
+    const zip = path.join(os.tmpdir(), info.asset.name);
+    setUpdateProgress(0.02);
+    await updater.downloadAsset(info.asset.id, zip, (p) => setUpdateProgress(Math.max(0.02, p)));
+    setUpdateProgress(0.999);
+    updater.install(zip);           // lance le swapper detache
+    setTimeout(() => { app.isQuitting = true; app.quit(); }, 500);
+  } catch (err) {
+    updating = false;
+    setUpdateProgress(-1);
+    dialog.showMessageBox({ type: 'error', message: 'Echec de la mise a jour', detail: String(err.message) });
+  }
+}
+// Verification silencieuse au demarrage : notification cliquable si MAJ dispo.
+async function notifyIfUpdate() {
+  try {
+    const info = await updater.checkForUpdate();
+    if (!info || !info.available) return;
+    const { Notification } = require('electron');
+    if (!Notification.isSupported()) return;
+    const n = new Notification({ title: `NotchZFX — mise a jour ${info.latest}`, body: 'Clique pour installer et redemarrer.' });
+    n.on('click', () => runUpdateFlow(true));
+    n.show();
+  } catch (_) { /* hors ligne / token invalide : silencieux */ }
+}
+ipcMain.handle('check-updates', async () => { await runUpdateFlow(true); return { ok: true }; });
 
 ipcMain.on('start-drag', (e, filePaths) => {
   try {

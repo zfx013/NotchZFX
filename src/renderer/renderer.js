@@ -24,11 +24,11 @@ let physicalW = 189;
 let simulated = false; // encoche externe (ecran sans vraie encoche)
 let prefs = { removeOnDragOut: false, externalAnimate: true };
 const isWin = window.notch.platform === 'win32';
-// Anime-t-on l'encoche ? Interne : toujours ; externe : selon la preference.
-// Sur Windows on FIGE l'OUVERTURE (snap) -> supprime le bug d'affichage a l'ouverture,
-// mais on GARDE la FERMETURE animee (animatedClose) -> retour doux quand la souris sort.
-const animated = () => !isWin && (!simulated || prefs.externalAnimate);
-const animatedClose = () => !simulated || prefs.externalAnimate;
+// Anime-t-on l'encoche ? Interne : toujours ; externe (dont Windows) : selon la
+// preference externalAnimate. Ouverture ET fermeture animees (l'utilisateur veut
+// retrouver l'animation d'ouverture sur Windows).
+const animated = () => !simulated || prefs.externalAnimate;
+const animatedClose = animated;
 function applyAnimClass() {
   document.documentElement.classList.toggle('simulated', simulated);
   document.documentElement.classList.toggle('no-anim', simulated && !prefs.externalAnimate);
