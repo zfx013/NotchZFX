@@ -314,6 +314,20 @@ body {
 }
 
 /* --------------------------------------------------------------- Dropdown mac */
+.text-field input {
+  background: #fff;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  width: 200px;
+  max-width: 240px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+.text-field input:focus { outline: 2px solid var(--accent, #0a84ff); outline-offset: 0; border-color: transparent; }
+.text-field input:disabled { opacity: 0.45; cursor: not-allowed; }
+
 .select {
   position: relative;
   display: inline-flex;

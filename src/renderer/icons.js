@@ -37,6 +37,12 @@ const ICONS = {
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M9 20.5h6M12 16.5v4"/></svg>',
   xmark:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  laptopcomputer:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="5" width="15" height="9.5" rx="1.6"/><path d="M2.5 18h19M9.5 18l.5-1.2h4l.5 1.2"/></svg>',
+  desktopcomputer:
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="1.8"/><path d="M9 20h6M12 16v4"/></svg>',
+  'paperplane.fill':
+    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.4 3.1a.7.7 0 00-.77-.15L3.3 9.86c-.66.26-.6 1.22.09 1.4l5.6 1.47 1.47 5.6c.18.69 1.14.75 1.4.09l6.9-17.34a.7.7 0 00-.16-.77l-.6.6zM10.6 12.2l6.9-4.7-4.7 6.9-.6-1.6-1.6-.6z"/></svg>',
 };
 
 function icon(name, cls) {

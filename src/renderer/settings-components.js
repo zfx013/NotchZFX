@@ -192,6 +192,21 @@
       return rowShell(row, ctx, wrap);
     },
 
+    // ---- Champ texte libre (nom d'appareil, code d'appairage)
+    text(row, ctx) {
+      const wrap = el('div', 'text-field');
+      const input = el('input');
+      input.type = 'text';
+      input.value = ctx.getPref(row.key) || '';
+      if (row.placeholder) input.placeholder = row.placeholder;
+      input.spellcheck = false;
+      input.disabled = !!resolve(row.disabled, ctx);
+      // change (perte de focus / Entree) : persistance sans re-rendu global.
+      input.addEventListener('change', () => ctx.setPref(row.key, input.value.trim(), { rerender: false }));
+      wrap.appendChild(input);
+      return rowShell(row, ctx, wrap);
+    },
+
     // ---- Controle segmente (System / Custom)
     segmented(row, ctx) {
       const wrap = el('div', 'segmented');

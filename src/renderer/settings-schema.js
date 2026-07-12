@@ -445,13 +445,92 @@
             { type: 'info', label: 'Cette machine', value: (ctx) => ctx.info.ip || '—' },
             {
               type: 'info',
-              label: 'Pair',
-              // Suit les mises a jour temps reel (onPeer) via data-sync-peer.
-              value: (ctx) => (ctx.info.peer ? `${ctx.info.peerHost || ''} ${ctx.info.peer}`.trim() : 'aucun'),
+              label: 'Appareils detectes',
+              // Suit les mises a jour temps reel (onPeers) via data-live="peer".
+              value: (ctx) => {
+                const n = (ctx.info.peers || []).length;
+                return n ? `${n} appareil${n > 1 ? 's' : ''}` : 'aucun';
+              },
               live: 'peer',
             },
             { type: 'button', label: 'Ouvrir le dossier de reception', action: () => window.settings.openInbox() },
             { type: 'button', label: "Vider l'etagere", action: () => window.settings.clearShelf() },
+          ],
+        },
+        {
+          title: 'AirNotch (partage entre appareils)',
+          rows: [
+            {
+              type: 'segmented',
+              key: 'airnotchVisibility',
+              label: 'Visibilite',
+              desc: "Ouvert : tous les appareils du WiFi qui ont l'appli. Prive : seulement les tiens (meme code).",
+              options: [['open', 'Ouvert'], ['private', 'Prive']],
+            },
+            {
+              type: 'dropdown',
+              key: 'airnotchAcceptFrom',
+              label: 'Accepter les fichiers de',
+              desc: 'Un appareil inconnu demande confirmation avant que tu recoives son fichier.',
+              options: [
+                ['paired', 'Mes appareils (meme code)'],
+                ['everyone', 'Tout le monde'],
+                ['nobody', 'Personne'],
+              ],
+            },
+            {
+              type: 'text',
+              key: 'airnotchPairCode',
+              label: "Code d'appairage",
+              placeholder: 'ex. maison-2401',
+              desc: 'Le meme code sur tes machines les relie. Requis en mode Prive.',
+              disabled: (ctx) => ctx.getPref('airnotchVisibility') !== 'private',
+            },
+            {
+              type: 'text',
+              key: 'airnotchDeviceName',
+              label: 'Nom affiche',
+              placeholder: "Nom d'hote de la machine",
+            },
+          ],
+        },
+        {
+          title: 'Envoi par defaut (glisser-deposer direct)',
+          rows: [
+            {
+              type: 'segmented',
+              key: 'airnotchDefaultSend',
+              label: 'Cibles',
+              desc: 'Ce qui recoit un fichier lache directement sur l\'encoche.',
+              options: [['all', 'Tous'], ['one', 'Un seul']],
+            },
+            {
+              type: 'dropdown',
+              key: 'airnotchDefaultTarget',
+              label: 'Appareil cible',
+              options: (ctx) => [['', 'Premier disponible']].concat(
+                (ctx.info.peers || []).map((p) => [p.ip, p.name || p.ip])
+              ),
+              disabled: (ctx) => ctx.getPref('airnotchDefaultSend') !== 'one',
+            },
+          ],
+        },
+        {
+          title: 'Appareils de confiance',
+          rows: [
+            {
+              type: 'info',
+              label: 'Appareils inconnus approuves',
+              value: (ctx) => {
+                const t = ctx.getPref('airnotchTrusted') || [];
+                return t.length ? t.map((d) => d.name).join(', ') : 'aucun';
+              },
+            },
+            {
+              type: 'button',
+              label: 'Oublier les appareils de confiance',
+              action: () => window.settings.setPref('airnotchTrusted', []),
+            },
           ],
         },
         {

@@ -101,6 +101,17 @@ const DEFAULTS = {
   externalAnimate: true,
   airdropToShelf: true,
   screenshotToShelf: true,
+
+  // ---- AirNotch (partage local multi-appareils) ----
+  airnotchVisibility: 'open',   // open (tout le monde sur le WiFi) | private (code d'appairage)
+  airnotchPairCode: '',         // partage entre TES machines quand visibility = private
+  airnotchDeviceName: '',       // nom affiche ('' => nom d'hote de la machine)
+  airnotchDefaultSend: 'all',   // glisser-deposer direct : all (tous) | one (un seul)
+  airnotchDefaultTarget: '',    // ip de l'appareil cible quand defaultSend = one
+  // Reception : bibliotheque commune -> on accepte TOUT appareil du reseau par defaut.
+  airnotchAcceptFrom: 'everyone', // everyone | paired (memes appareils) | nobody
+  airnotchDeviceId: '',         // identite STABLE de cette machine (generee une fois)
+  airnotchTrusted: [],          // [{ id, name }] appareils inconnus explicitement acceptes
 };
 
 class PrefsStore {

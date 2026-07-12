@@ -21,6 +21,20 @@
         <span id="hud-pct"></span>
       </div>
 
+      <!-- Pulsation violette discrete quand un fichier arrive d'un autre appareil :
+           contour SVG en U (bas + cotes, JAMAIS le haut), epaisseur constante, le
+           degrade efface le violet pres du bord haut (encoche physique intacte). -->
+      <svg id="recv-flash" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="recv-grad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0"    stop-color="#c9a2ff" stop-opacity="0"></stop>
+            <stop offset="0.42" stop-color="#c9a2ff" stop-opacity="0.85"></stop>
+            <stop offset="1"    stop-color="#dcc0ff" stop-opacity="1"></stop>
+          </linearGradient>
+        </defs>
+        <path id="recv-contour" fill="none" stroke="url(#recv-grad)"></path>
+      </svg>
+
       <!-- Contenu ouvert : fixe 640x190, revele par le clip de la forme -->
       <div id="open-view">
         <header id="header">
@@ -29,7 +43,7 @@
           </div>
           <div class="h-center"></div>
           <div class="h-right">
-            <div id="peer-chip" hidden title="PC connecte — depose un fichier ici pour l'envoyer">
+            <div id="peer-chip" hidden title="Appareils sur le réseau (bibliothèque commune)">
               <span class="peer-dot"></span>
               <span id="peer-chip-name"></span>
             </div>
@@ -75,12 +89,22 @@
               <button id="clear-shelf" title="Vider le shelf" hidden></button>
               <div id="shelf-empty">
                 <div class="empty-icon"></div>
-                <div class="empty-text">Drop files here</div>
+                <div class="empty-text">Déposez ici — partagé sur le réseau</div>
               </div>
               <div id="shelf-scroll"><div id="shelf-row"></div></div>
             </div>
           </section>
         </main>
+
+        <!-- Liste (lecture seule) des appareils sur le reseau. S'affiche au survol de
+             la pastille. Aucune selection/envoi : la bibliotheque est commune. -->
+        <div id="airnotch-pop" hidden>
+          <div class="anp-head">
+            <span class="anp-title">Sur le réseau</span>
+            <span class="anp-sub" id="anp-sub"></span>
+          </div>
+          <div id="anp-list"></div>
+        </div>
       </div>
     </div>
   </div>

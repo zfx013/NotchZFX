@@ -9,6 +9,13 @@ const $ = (id) => document.getElementById(id);
 const notchEl = $('notch');
 const wrapEl = $('shadow-wrap');
 const openView = $('open-view');
+const flashSvg = $('recv-flash');
+const contourPath = $('recv-contour');
+// Refs liste-appareils declarees tot : closeDeviceList() est appele des le
+// switchTab('home') initial, avant le bloc liste -> evite une TDZ sur anpEl.
+const anpEl = $('airnotch-pop');
+const anpList = $('anp-list');
+const anpSub = $('anp-sub');
 
 // ---- Geometrie (matters.swift) ----
 const OPEN_DIMS = { w: 640, h: 190, tr: 19, br: 24 };
@@ -16,17 +23,22 @@ let closedDims = { w: 193, h: 32, tr: 6, br: 14 };
 let physicalW = 189;
 let simulated = false; // encoche externe (ecran sans vraie encoche)
 let prefs = { removeOnDragOut: false, externalAnimate: true };
-// Anime-t-on l'encoche ? Toujours pour l'interne ; pour l'externe selon la preference.
-const animated = () => !simulated || prefs.externalAnimate;
+const isWin = window.notch.platform === 'win32';
+// Anime-t-on l'encoche ? Interne : toujours ; externe : selon la preference.
+// Sur Windows on FIGE l'OUVERTURE (snap) -> supprime le bug d'affichage a l'ouverture,
+// mais on GARDE la FERMETURE animee (animatedClose) -> retour doux quand la souris sort.
+const animated = () => !isWin && (!simulated || prefs.externalAnimate);
+const animatedClose = () => !simulated || prefs.externalAnimate;
 function applyAnimClass() {
   document.documentElement.classList.toggle('simulated', simulated);
   document.documentElement.classList.toggle('no-anim', simulated && !prefs.externalAnimate);
 }
 
 let state = 'closed';
-let currentView = 'home';
+// Windows : le media (AppleScript) et le calendrier (EventKit) sont macOS-only -> on
+// n'expose QUE la bibliotheque de fichiers. La vue par defaut est donc le shelf.
+let currentView = window.notch.platform === 'win32' ? 'shelf' : 'home';
 let items = []; // { path, name, dir: 'in'|'local' }
-let peer = null;
 let hoverTimer = null;
 let hideTimer = null;
 let dragDepth = 0;
@@ -39,6 +51,16 @@ function notchPath(w, h, tr, br) {
   return `path('M 0 0 Q ${tr} 0 ${tr} ${tr} L ${tr} ${r(h - br)} Q ${tr} ${h} ${r(tr + br)} ${h} ` +
          `L ${r(w - tr - br)} ${h} Q ${r(w - tr)} ${h} ${r(w - tr)} ${r(h - br)} ` +
          `L ${r(w - tr)} ${tr} Q ${r(w - tr)} 0 ${w} 0 Z')`;
+}
+
+// Contour de reception : U OUVERT epousant la silhouette (cote gauche + bas + cote
+// droit), SANS l'arete du haut. Trace stroke a epaisseur constante -> bas et cotes
+// identiques ; le degrade vertical (CSS/SVG) efface le violet pres du bord haut.
+function notchContourPath(w, h, tr, br) {
+  const r = (n) => Math.round(n * 100) / 100;
+  w = r(w); h = r(h); tr = r(Math.min(tr, w / 2, h)); br = r(Math.min(br, w / 2 - tr, h - tr));
+  return `M ${tr} ${tr} L ${tr} ${r(h - br)} Q ${tr} ${h} ${r(tr + br)} ${h} ` +
+         `L ${r(w - tr - br)} ${h} Q ${r(w - tr)} ${h} ${r(w - tr)} ${r(h - br)} L ${r(w - tr)} ${tr}`;
 }
 
 // ---- Spring SwiftUI : x'' = -w0^2 (x - cible) - 2 zeta w0 x' ----
@@ -95,6 +117,11 @@ class NotchSpring {
     notchEl.style.width = w + 'px';
     notchEl.style.height = h + 'px';
     notchEl.style.clipPath = notchPath(w, h, tr, br);
+    if (contourPath) {
+      const rw = Math.round(w * 100) / 100, rh = Math.round(h * 100) / 100;
+      flashSvg.setAttribute('viewBox', `0 0 ${rw} ${rh}`);
+      contourPath.setAttribute('d', notchContourPath(w, h, tr, br));
+    }
   }
 }
 const spring = new NotchSpring(closedDims);
@@ -104,6 +131,7 @@ const spring = new NotchSpring(closedDims);
 // d'autre de l'encoche physique (facon Boring Notch). ----
 const LIVE_EXTRA = 84;
 let wasLiveClosed = false;
+let notifying = false; // peek de notification en cours (fichier recu) -> fige la forme fermee
 function liveClosed() {
   return state === 'closed' && !simulated
     && prefs.showMusicLiveActivity !== false
@@ -116,12 +144,27 @@ function closedTarget() {
     : closedDims;
 }
 function applyClosedShape(force) {
-  if (state !== 'closed' || document.documentElement.classList.contains('hud')) return;
+  if (state !== 'closed' || document.documentElement.classList.contains('hud') || notifying) return;
   const lc = liveClosed();
   if (!force && lc === wasLiveClosed) return; // n'anime que sur changement (evite le jitter au poll 1 s)
   wasLiveClosed = lc;
   if (animated()) spring.animateTo(closedTarget(), 0.4, 0.9);
   else spring.snap(closedTarget());
+}
+
+// ---- Peek de notification : l'encoche fermee GROSSIT brievement en pilule (fichier
+// recu d'un autre appareil). Pilote par main (onNotchNotify) qui a deja agrandi la
+// fenetre pour laisser la place. Pas d'ouverture de la vue complete. ----
+function notifDims() {
+  return { w: closedDims.w + 120, h: Math.max(closedDims.h + 22, 50), tr: closedDims.tr, br: 24 };
+}
+function notifPeek(on) {
+  if (state === 'open' || document.documentElement.classList.contains('hud')) return;
+  notifying = on;
+  // Aller : ressort nettement sous-amorti (zeta 0.42) + periode plus longue (0.5)
+  // -> la pilule DEPASSE bien puis rebondit visiblement. Retour plus doux.
+  if (on) spring.animateTo(notifDims(), 0.5, 0.42);
+  else spring.animateTo(closedTarget(), 0.42, 0.9);
 }
 
 // ---- Etat ouvert / ferme ----
@@ -144,11 +187,13 @@ function applyState(s, tab) {
     // Ferme vers la forme LIVE si de la musique joue (sinon encoche fermee normale).
     wasLiveClosed = liveClosed();
     const t = closedTarget();
-    if (animated()) spring.animateTo(t, 0.45, 1.0); // ContentView.swift:124
+    // Fermeture : animee aussi sur Windows (retour doux quand la souris sort).
+    if (animatedClose()) spring.animateTo(t, 0.45, 1.0); // ContentView.swift:124
     else spring.snap(t);
     openView.classList.add('hiding');
     openView.classList.remove('shown');
     wrapEl.classList.remove('shadowed');
+    closeDeviceList();
     hideTimer = setTimeout(() => {
       openView.classList.remove('hiding');
       // Onglet apres fermeture (BoringViewModel.swift:212-218) : shelf si non vide
@@ -158,6 +203,7 @@ function applyState(s, tab) {
 }
 
 window.notch.onNotchState((s) => applyState(s.state, s.tab));
+window.notch.onNotchNotify((d) => { const on = !!(d && d.on); notifPeek(on); if (on) pulseNotch(); });
 window.notch.onSwitchTab((t) => switchTab(t));
 
 window.notch.onGeometry((g) => {
@@ -201,12 +247,13 @@ notchEl.addEventListener('contextmenu', (e) => {
   if (state === 'closed') window.notch.popupGearMenu();
 });
 
-// ---- Onglets ----
-const TAB_DEFS = [
+// ---- Onglets ---- (Windows : seulement la bibliotheque, on masque Home + la barre)
+const TAB_DEFS = (isWin ? [{ key: 'shelf', icon: 'tray.fill' }] : [
   { key: 'home', icon: 'house.fill' },
   { key: 'shelf', icon: 'tray.fill' },
-];
+]);
 const tabsEl = $('tabs');
+if (isWin) tabsEl.style.display = 'none'; // un seul onglet -> barre inutile
 TAB_DEFS.forEach((t) => {
   const btn = document.createElement('button');
   btn.className = 'tab' + (t.key === currentView ? ' active' : '');
@@ -216,12 +263,14 @@ TAB_DEFS.forEach((t) => {
   tabsEl.appendChild(btn);
 });
 function switchTab(view) {
+  if (isWin) view = 'shelf'; // Windows : jamais de vue Home (media/calendrier macOS-only)
   currentView = view;
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === view));
   $('view-home').hidden = view !== 'home';
   $('view-shelf').hidden = view !== 'shelf';
+  if (view !== 'shelf') closeDeviceList();
 }
-switchTab('home');
+switchTab(currentView);
 
 // ---- Header droite : engrenage + batterie ----
 $('gear-btn').appendChild(icon('gear'));
@@ -230,7 +279,8 @@ $('gear-btn').addEventListener('contextmenu', (e) => { e.preventDefault(); windo
 
 let battObj = null;
 function renderBattery() {
-  const show = prefs.showBatteryIndicator !== false && !!battObj;
+  // Pas d'indicateur de batterie sur Windows (l'utilisateur n'en veut pas).
+  const show = !isWin && prefs.showBatteryIndicator !== false && !!battObj;
   $('battery').hidden = !show;
   if (!show) return;
   const pct = Math.round(battObj.level * 100);
@@ -407,11 +457,95 @@ if (window.notch.platform !== 'darwin') {
   if (lbl) lbl.textContent = 'AirDrop via Mac';
 }
 
+// Liste des appareils sur le reseau (lecture seule). La pastille #peer-chip montre
+// le nombre ; au survol, on affiche la liste des noms. AUCUNE selection/envoi : la
+// bibliotheque est commune, tout se partage automatiquement.
+let peersList = [];
+function renderPeers() {
+  const n = peersList.length;
+  peerChip.hidden = n === 0;
+  if (n > 0) $('peer-chip-name').textContent = String(n);
+  if (n === 0) closeDeviceList();
+  else if (anpEl && !anpEl.hidden) buildDeviceList();
+}
+
+function deviceGlyph(p) {
+  if (p.form === 'laptop') return 'laptopcomputer';
+  if (p.os === 'mac') return 'desktopcomputer';
+  return 'pc.display';
+}
+
+// Construit la liste passive : un appareil par pair (icone + nom + point vert).
+function buildDeviceList() {
+  anpList.innerHTML = '';
+  if (!peersList.length) {
+    const e = document.createElement('div');
+    e.className = 'an-empty';
+    e.textContent = 'Aucun appareil sur le réseau';
+    anpList.appendChild(e);
+    return;
+  }
+  peersList.forEach((d) => {
+    const t = document.createElement('div');
+    t.className = 'an-tile readonly' + (d.mine ? ' mine' : '');
+    const av = document.createElement('div');
+    av.className = 'an-avatar';
+    av.appendChild(icon(deviceGlyph(d), 'an-glyph'));
+    const dot = document.createElement('span'); dot.className = 'an-dot'; av.appendChild(dot);
+    const nm = document.createElement('div');
+    nm.className = 'an-name';
+    nm.textContent = d.name || d.host || 'Appareil';
+    t.appendChild(av); t.appendChild(nm);
+    anpList.appendChild(t);
+  });
+}
+
+let deviceListHideTimer = null;
+function openDeviceList() {
+  if (!peersList.length) return;
+  clearTimeout(deviceListHideTimer);
+  anpSub.textContent = peersList.length + (peersList.length > 1 ? ' appareils' : ' appareil');
+  buildDeviceList();
+  anpEl.hidden = false;
+}
+function closeDeviceList() { if (anpEl) anpEl.hidden = true; }
+function scheduleDeviceListHide() {
+  clearTimeout(deviceListHideTimer);
+  deviceListHideTimer = setTimeout(closeDeviceList, 180);
+}
+
+// Survol de la pastille -> liste ; on la garde ouverte tant que le curseur est sur
+// la pastille ou sur la liste elle-meme.
+peerChip.addEventListener('mouseenter', openDeviceList);
+peerChip.addEventListener('mouseleave', scheduleDeviceListHide);
+anpEl.addEventListener('mouseenter', () => clearTimeout(deviceListHideTimer));
+anpEl.addEventListener('mouseleave', scheduleDeviceListHide);
+
 // ---- Shelf : etat + selection multiple ----
 const rowEl = $('shelf-row');
 let selected = new Set();
 let anchorPath = null;
 const cardByPath = new Map(); // path -> element (pour la selection au lasso)
+
+// Anneau de progression circulaire (facon App Store) : piste + arc qui se remplit.
+const RING_R = 13;
+const RING_C = 2 * Math.PI * RING_R;
+function makeDlRing(id, pct) {
+  const wrap = document.createElement('div');
+  wrap.className = 'dl-ring';
+  wrap.dataset.ring = id;
+  wrap.innerHTML =
+    '<svg viewBox="0 0 32 32">' +
+      '<circle class="dl-track" cx="16" cy="16" r="' + RING_R + '"></circle>' +
+      '<circle class="dl-arc" cx="16" cy="16" r="' + RING_R + '" stroke-dasharray="' +
+        RING_C.toFixed(2) + '" stroke-dashoffset="' + (RING_C * (1 - pct)).toFixed(2) + '"></circle>' +
+    '</svg>';
+  return wrap;
+}
+function updateDlRing(id, pct) {
+  const arc = rowEl.querySelector('[data-ring="' + id + '"] .dl-arc');
+  if (arc) arc.setAttribute('stroke-dashoffset', (RING_C * (1 - Math.max(0, Math.min(1, pct)))).toFixed(2));
+}
 
 function renderShelf() {
   rowEl.innerHTML = '';
@@ -419,29 +553,45 @@ function renderShelf() {
   $('shelf-empty').style.display = items.length ? 'none' : 'flex';
   $('clear-shelf').hidden = items.length === 0;
   items.forEach((it) => {
+    const dl = !!it.downloading;
     const card = document.createElement('div');
-    card.className = 'shelf-item' + (selected.has(it.path) ? ' selected' : '');
-    card.draggable = true;
-    cardByPath.set(it.path, card);
+    card.className = 'shelf-item' + (!dl && selected.has(it.path) ? ' selected' : '') + (it.from ? ' from-peer' : '') + (dl ? ' downloading' : '');
+    card.draggable = !dl;
+    if (!dl) cardByPath.set(it.path, card);
+
+    // Fichier recu d'un autre appareil : pastille violette + info d'expediteur.
+    if (it.from) {
+      const badge = document.createElement('span');
+      badge.className = 'from-badge';
+      badge.title = 'Recu de ' + it.from.name;
+      card.appendChild(badge);
+    }
 
     const ph = document.createElement('div');
     ph.className = 'thumb placeholder';
     ph.textContent = (it.name.split('.').pop() || '?').slice(0, 4);
     card.appendChild(ph);
-    window.notch.getThumb(it.path).then((url) => {
-      if (!url || !card.contains(ph)) return;
-      const img = document.createElement('img');
-      img.className = 'thumb';
-      img.src = url;
-      img.draggable = false;
-      card.replaceChild(img, ph);
-    });
+    if (!dl) {
+      window.notch.getThumb(it.path).then((url) => {
+        if (!url || !card.contains(ph)) return;
+        const img = document.createElement('img');
+        img.className = 'thumb';
+        img.src = url;
+        img.draggable = false;
+        card.replaceChild(img, ph);
+      });
+    } else {
+      // Telechargement en cours : anneau de progression (facon App Store) par-dessus.
+      card.appendChild(makeDlRing(it.id, it.pct || 0));
+    }
 
     const name = document.createElement('div');
     name.className = 'name';
     name.textContent = middleTruncate(it.name, 28);
     name.title = it.name;
     card.appendChild(name);
+
+    if (dl) { rowEl.appendChild(card); return; } // pas d'interactions sur un placeholder
 
     // Selection : clic simple / Cmd+clic toggle / Shift+clic plage (ShelfSelectionModel)
     card.addEventListener('click', (e) => {
@@ -473,7 +623,7 @@ function renderShelf() {
         anchorPath = it.path;
         renderShelf();
       }
-      window.notch.popupItemMenu({ paths: effectiveSelection(it.path) });
+      window.notch.popupItemMenu({ paths: effectiveSelection(it.path), from: it.from || null });
     });
 
     // Drag sortant : si l'item fait partie de la selection, on glisse tout le lot.
@@ -606,21 +756,46 @@ $('clear-shelf').addEventListener('click', (e) => {
 function clearShelf() {
   items = [];
   selected.clear();
-  persist();
   renderShelf();
+  // Bibliotheque commune : vide localement (persist) ET sur tous les appareils du reseau.
+  window.notch.clearLibrary();
 }
 
 function persist() {
-  window.notch.saveShelf(items.map(({ path, name, dir }) => ({ path, name, dir })));
+  // Les placeholders en cours de telechargement (path null) ne sont pas persistes.
+  window.notch.saveShelf(
+    items.filter((i) => i.path && !i.downloading)
+      .map(({ path, name, dir, from, receivedAt, id }) => ({ path, name, dir, from, receivedAt, id }))
+  );
 }
 
-function addItems(paths, dir) {
+function addItems(paths, dir, from) {
   const known = new Set(items.map((i) => i.path));
+  const now = Date.now();
   paths.filter((p) => !known.has(p)).forEach((p) => {
-    items.push({ path: p, name: p.split(/[\\/]/).pop(), dir });
+    items.push({ path: p, name: p.split(/[\\/]/).pop(), dir, from: from || null, receivedAt: from ? now : undefined });
   });
   persist();
   renderShelf();
+}
+
+// Ajout LOCAL a la bibliotheque commune : on garde le fichier ici ET on le copie
+// automatiquement vers tous les appareils du reseau (aucune selection).
+function addLocal(paths) {
+  if (!paths || !paths.length) return;
+  addItems(paths, 'local');
+  window.notch.shareToAll(paths);
+}
+
+// Effet visuel discret (sans texte) quand un fichier arrive d'un autre appareil :
+// une pulsation violette qui suit la forme de l'encoche.
+function pulseNotch() {
+  const n = document.getElementById('notch');
+  if (!n) return;
+  n.classList.remove('recv-pulse');
+  void n.offsetWidth; // force un reflow -> relance l'animation meme si rapprochee
+  n.classList.add('recv-pulse');
+  setTimeout(() => n.classList.remove('recv-pulse'), 950);
 }
 
 function removeItems(paths) {
@@ -632,7 +807,13 @@ function removeItems(paths) {
   renderShelf();
 }
 
-window.notch.onShelfItems((saved) => { items = saved || []; renderShelf(); });
+window.notch.onShelfItems((saved) => {
+  // On preserve les placeholders en cours de telechargement (absents du disque).
+  const dl = items.filter((i) => i.downloading);
+  const list = saved || [];
+  items = list.concat(dl.filter((d) => !list.some((s) => s.id && s.id === d.id)));
+  renderShelf();
+});
 
 // ---- Actions des menus natifs ----
 window.notch.onMenuAction(({ action, paths }) => {
@@ -663,11 +844,13 @@ function chipFlash(text, isError) {
   peerChip.classList.toggle('error', !!isError);
   chipResetTimer = setTimeout(() => {
     peerChip.classList.remove('error');
-    if (peer) name.textContent = peer.host || peer.ip;
+    if (peersList.length) name.textContent = String(peersList.length);
     else peerChip.hidden = true;
   }, 2500);
 }
 
+// Envoi par defaut (glisser sur le shelf/chip) : tous les appareils, ou l'appareil
+// choisi dans les reglages (defaultSend = all | one). Gere cote main.
 async function sendToPeer(paths) {
   if (!paths.length) return;
   const res = await window.notch.sendFiles(paths);
@@ -677,6 +860,7 @@ async function sendToPeer(paths) {
     chipFlash('Envoye !', false);
   }
 }
+
 
 function shareViaAirdrop(paths) {
   if (!paths.length) return;
@@ -722,10 +906,11 @@ document.addEventListener('drop', (e) => {
   e.preventDefault();
   window.notch.dbg('DOM drop, files=' + (e.dataTransfer.files ? e.dataTransfer.files.length : 0));
   endDrag();
-  // Filet de securite : depot dans l'encoche ouverte hors zones dediees -> shelf local
+  // Filet de securite : depot dans l'encoche ouverte hors zones dediees -> bibliotheque
+  // commune (garde ici + copie a tous les appareils du reseau).
   if (state === 'open' && currentView === 'shelf') {
     const paths = filesFromEvent(e);
-    if (paths.length) addItems(paths, 'local');
+    if (paths.length) addLocal(paths);
   }
 });
 
@@ -742,7 +927,7 @@ async function textFromEvent(e) {
   return await window.notch.saveText(text);
 }
 
-// Panneau shelf : depot -> ajout LOCAL (les fichiers restent disponibles, PC eteint ou pas)
+// Panneau shelf : depot -> bibliotheque commune (garde ici + copie a tous)
 panel.addEventListener('dragover', (e) => { e.preventDefault(); panel.classList.add('targeted'); });
 panel.addEventListener('dragleave', (e) => {
   if (!panel.contains(e.relatedTarget)) panel.classList.remove('targeted');
@@ -753,11 +938,11 @@ panel.addEventListener('drop', (e) => {
   panel.classList.remove('targeted');
   endDrag();
   const paths = filesFromEvent(e);
-  if (paths.length) { addItems(paths, 'local'); return; }
-  textFromEvent(e).then((p) => { if (p) addItems([p], 'local'); });
+  if (paths.length) { addLocal(paths); return; }
+  textFromEvent(e).then((p) => { if (p) addLocal([p]); });
 });
 
-// Zone AirDrop : depot -> menu de partage systeme
+// Zone AirDrop : depot -> partage (Mac natif ou relais via le Mac)
 airdropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); airdropZone.classList.add('targeted'); });
 airdropZone.addEventListener('dragleave', (e) => {
   if (!airdropZone.contains(e.relatedTarget)) airdropZone.classList.remove('targeted');
@@ -776,7 +961,8 @@ airdropZone.addEventListener('click', async (e) => {
   if (paths.length) shareViaAirdrop(paths);
 });
 
-// Chip du pair : depot -> envoi direct au PC ; clic -> selecteur de fichiers
+// Pastille appareils : depot dessus = bibliotheque commune (comme partout ailleurs).
+// (La liste au survol est en lecture seule ; aucun clic d'envoi.)
 peerChip.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); peerChip.classList.add('targeted'); });
 peerChip.addEventListener('dragleave', (e) => {
   if (!peerChip.contains(e.relatedTarget)) peerChip.classList.remove('targeted');
@@ -787,12 +973,7 @@ peerChip.addEventListener('drop', (e) => {
   peerChip.classList.remove('targeted');
   endDrag();
   const paths = filesFromEvent(e);
-  if (paths.length) sendToPeer(paths);
-});
-peerChip.addEventListener('click', async (e) => {
-  e.stopPropagation();
-  const paths = await window.notch.pickFiles();
-  if (paths.length) sendToPeer(paths);
+  if (paths.length) addLocal(paths);
 });
 
 // ---- Depot global capte par le demon (contourne le drop d'Electron) ----
@@ -801,28 +982,50 @@ window.notch.onExternalDrop(({ paths, x, y }) => {
   if (!paths || !paths.length) return;
   const el = document.elementFromPoint(x, y);
   if (el && el.closest('#share-airdrop')) {
-    shareViaAirdrop(paths);
-  } else if (el && el.closest('#peer-chip')) {
-    sendToPeer(paths);
+    shareViaAirdrop(paths); // AirDrop = envoi ponctuel vers un appareil Apple hors app
   } else {
-    // Defaut : deposer sur le shelf (les fichiers y restent, PC eteint ou non)
-    addItems(paths, 'local');
+    // Partout ailleurs -> bibliotheque commune (garde ici + copie a tous les appareils).
+    addLocal(paths);
     switchTab('shelf');
   }
 });
 
-// ---- Evenements reseau ----
-window.notch.onFileReceived((d) => addItems([d.path], 'in'));
-
-window.notch.onPeerUpdated((d) => {
-  peer = d;
-  peerChip.hidden = false;
-  peerChip.classList.remove('error');
-  $('peer-chip-name').textContent = d.host || d.ip;
+// ---- Evenements reseau : transfert avec anneau de progression ----
+// Debut : le fichier apparait TOUT DE SUITE en placeholder + anneau (avant la fin).
+window.notch.onFileIncoming((d) => {
+  if (!d || !d.id || items.some((i) => i.id === d.id)) return;
+  items.push({ id: d.id, path: null, name: d.name || 'fichier', dir: 'in', from: d.from || null,
+    downloading: true, pct: 0, size: d.size || 0, receivedAt: Date.now() });
+  renderShelf(); // pas de persist (placeholder transitoire, pas de fichier sur disque)
 });
+// Progression : on met a jour l'anneau du placeholder (sans re-rendre toute l'etagere).
+window.notch.onFileProgress((d) => {
+  if (!d || !d.id) return;
+  const it = items.find((i) => i.id === d.id && i.downloading);
+  if (!it) return;
+  if (d.size) it.pct = Math.min(1, d.received / d.size);
+  updateDlRing(d.id, it.pct);
+});
+// Fin : on finalise le placeholder (chemin reel + vignette) ; sinon ajout classique.
+window.notch.onFileReceived((d) => {
+  if (d.id) {
+    const it = items.find((i) => i.id === d.id);
+    if (it) {
+      it.path = d.path; it.name = d.name || it.name; it.from = d.from || it.from;
+      it.downloading = false; it.pct = 1;
+      persist();
+      renderShelf();
+      return;
+    }
+  }
+  addItems([d.path], 'in', d.from);
+});
+
+window.notch.onPeers((list) => { peersList = Array.isArray(list) ? list : []; renderPeers(); });
 
 window.notch.onSelfInfo(() => {});
 
+renderPeers();
 renderShelf();
 
 // Troncature au milieu (equivalent truncationMode .middle de SwiftUI)

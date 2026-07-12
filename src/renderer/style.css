@@ -42,6 +42,41 @@ html, body {
   will-change: width, height, clip-path;
 }
 
+/* Overlay de reception : UNIQUEMENT un fin CONTOUR violet degrade sur l'arete
+   EXTERIEURE (bas + cotes). AUCUN remplissage : l'interieur reste noir pur, sinon
+   ca se voit contre l'encoche physique (pas d'ecran dessous) et casse l'illusion.
+   Jamais sur le bord du haut colle a l'ecran. */
+#recv-flash {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 6;
+  overflow: visible;
+  /* Glow autour du trait. Le clip de #notch coupe la moitie exterieure -> glow
+     INTERIEUR uniquement, rien ne deborde vers l'ecran pres de l'encoche. */
+  filter:
+    drop-shadow(0 0 2.5px rgba(200, 150, 255, 0.9))
+    drop-shadow(0 0 6px rgba(167, 106, 255, 0.5));
+}
+/* Trait d'epaisseur CONSTANTE -> bas et cotes identiques. Il epouse les angles
+   arrondis (meme geometrie que la silhouette). Le degrade vertical (recv-grad)
+   rend le haut transparent : AUCUN violet sur l'arete du haut. */
+#recv-contour {
+  stroke-width: 5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#notch.recv-pulse #recv-flash { animation: recvFlash 1.3s cubic-bezier(0.25, 0.9, 0.3, 1) both; }
+@keyframes recvFlash {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  55%  { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { #notch.recv-pulse #recv-flash { animation: none; } }
+
 /* ---- Contenu ouvert : cadre fixe 640x190 revele par le clip ---- */
 #open-view {
   position: absolute;
@@ -381,6 +416,124 @@ html, body {
 .share-zone.online .share-circle { color: #d8d8dc; }
 .share-zone:hover .share-circle { background: rgba(255, 255, 255, 0.11); }
 
+/* ---- Popover AirNotch : panneau de partage dans la bulle (remplace le panneau
+   natif). Ancre en haut a droite, sous la pastille d'appareils. ---- */
+#airnotch-pop {
+  position: absolute;
+  top: 42px; right: 14px;
+  z-index: 40;
+  width: 238px;
+  max-height: 144px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  background: rgba(22, 22, 25, 0.985);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(0, 0, 0, 0.85);
+  padding: 8px;
+  pointer-events: auto;
+  transform-origin: top right;
+  animation: anpIn 0.16s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+}
+#airnotch-pop[hidden] { display: none; }
+@keyframes anpIn {
+  from { opacity: 0; transform: scale(0.9) translateY(-4px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.anp-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 1px 3px 7px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  margin-bottom: 5px;
+}
+.anp-title { font-size: 12px; font-weight: 650; color: rgba(255, 255, 255, 0.92); }
+.anp-sub {
+  font-size: 10.5px; color: rgba(255, 255, 255, 0.4);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0;
+}
+.anp-close {
+  flex: none; width: 16px; height: 16px; border: none; background: none;
+  cursor: pointer; color: rgba(255, 255, 255, 0.45); padding: 0;
+  display: grid; place-items: center;
+}
+.anp-close::before, .anp-close::after {
+  content: ''; position: absolute; width: 11px; height: 1.6px; border-radius: 1px;
+  background: currentColor;
+}
+.anp-close::before { transform: rotate(45deg); }
+.anp-close::after { transform: rotate(-45deg); }
+.anp-close:hover { color: #fff; }
+#anp-list {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+  gap: 3px;
+  scrollbar-width: thin;
+}
+#anp-list::-webkit-scrollbar { width: 4px; }
+#anp-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 2px; }
+.an-tile.drop-hot { background: rgba(167, 106, 255, 0.22); border-color: rgba(167, 106, 255, 0.8); }
+/* Ligne "Tous les appareils" : pastille accent violette */
+.an-all .an-avatar { background: rgba(167, 106, 255, 0.18); border-color: rgba(167, 106, 255, 0.55); color: #c9a2ff; }
+.an-count { font-size: 10px; color: rgba(255, 255, 255, 0.4); margin-left: auto; padding-left: 6px; flex: none; }
+
+.an-tile {
+  display: flex; align-items: center;
+  gap: 8px;
+  padding: 3px 7px;
+  border-radius: 9px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background .14s ease, border-color .14s ease;
+}
+.an-tile:hover { background: rgba(255, 255, 255, 0.07); }
+.an-tile.targeted { background: rgba(53, 211, 198, 0.16); border-color: rgba(53, 211, 198, 0.6); }
+/* Liste en lecture seule : rien de cliquable, pas de surbrillance au survol. */
+.an-tile.readonly { cursor: default; }
+.an-tile.readonly:hover { background: transparent; border-color: transparent; }
+.an-avatar {
+  position: relative; flex: none;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cfd2dd;
+}
+.an-glyph { width: 15px; height: 15px; }
+.an-avatar .icon { width: 15px; height: 15px; }
+.an-dot {
+  position: absolute; right: -1px; bottom: -1px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #54d178;
+  border: 2px solid #0a0a0c;
+}
+.an-name {
+  font-size: 11px; font-weight: 550;
+  color: rgba(255, 255, 255, 0.82);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
+}
+.an-tile.mine .an-avatar { border-color: rgba(53, 211, 198, 0.6); color: #eafffb; }
+.an-tile.mine .an-name { color: #d7fbf6; }
+.an-empty {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  text-align: center;
+  padding: 14px 4px;
+}
+
+/* Tuile AirDrop, epinglee en bas de la colonne */
+.an-airdrop {
+  flex: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 8px; margin-top: 2px;
+}
+.an-airdrop .an-avatar { background: rgba(59, 157, 255, 0.16); border-color: rgba(59, 157, 255, 0.5); color: #6bb6ff; }
+.an-airdrop.targeted { background: rgba(59, 157, 255, 0.16); border-color: rgba(59, 157, 255, 0.6); }
+.an-airdrop.disabled { opacity: 0.38; pointer-events: none; }
+
 /* Bouton discret "vider le shelf" (apparait au survol du panneau) */
 #clear-shelf {
   position: absolute;
@@ -451,6 +604,7 @@ html, body {
 
 /* Cartes un peu plus petites (hitbox reduite) -> plus d'espace vide pour le lasso. */
 .shelf-item {
+  position: relative;
   width: 88px;
   padding: 6px 4px;
   border-radius: 12px;
@@ -468,12 +622,43 @@ html, body {
   border: 2px solid rgba(10, 132, 255, 0.8);
   padding: 5px 3px;
 }
+/* Fichier recu d'un AUTRE appareil : accent VIOLET (au lieu du bleu) + pastille */
+.shelf-item.from-peer.selected {
+  background: rgba(167, 106, 255, 0.16);
+  border-color: rgba(167, 106, 255, 0.85);
+}
+.from-badge {
+  position: absolute;
+  top: 3px; right: 5px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #a76aff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  z-index: 2;
+}
 .shelf-item .thumb {
   width: 50px; height: 50px;
   border-radius: 12px;
   object-fit: contain;
   box-shadow: 0 2px 3px rgba(0, 0, 0, 0.15);
   background: transparent;
+}
+/* Telechargement en cours : vignette attenuee + anneau de progression (facon App Store). */
+.shelf-item.downloading .thumb { opacity: 0.28; }
+.dl-ring {
+  position: absolute;
+  top: 6px; left: 0; right: 0; height: 50px;
+  display: grid; place-items: center;
+  pointer-events: none; z-index: 3;
+}
+.dl-ring svg { width: 42px; height: 42px; overflow: visible; }
+.dl-track { fill: none; stroke: rgba(255, 255, 255, 0.16); stroke-width: 3; }
+.dl-arc {
+  fill: none; stroke: #b98cff; stroke-width: 3; stroke-linecap: round;
+  transform: rotate(-90deg); transform-origin: 50% 50%;
+  filter: drop-shadow(0 0 3px rgba(167, 106, 255, 0.6));
+  transition: stroke-dashoffset 0.14s linear;
 }
 .shelf-item .thumb.placeholder {
   background: #2c2c2e;

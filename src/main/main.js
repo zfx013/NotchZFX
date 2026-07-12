@@ -60,9 +60,12 @@ const SHADOW_PADDING = 20;
 const WINDOW = { w: OPEN.w, h: OPEN.h + SHADOW_PADDING };
 
 let tray;
-let peerIp = null;
-let peerHost = null;
+// AirNotch : table des appareils decouverts sur le reseau (ip -> profil), au lieu
+// d'un seul pair. Chaque entree : { ip, id, host, name, os, form, mine, group, lastSeen }.
+const peers = new Map();
+let selfForm = 'desktop'; // 'laptop' | 'desktop' (detecte au demarrage, best-effort)
 const selfId = crypto.randomUUID();
+let deviceId = selfId; // identite STABLE (chargee/generee depuis les prefs au demarrage)
 
 let preventClose = false; // menu contextuel ouvert / drag en cours de ciblage
 let dragActive = false;  // un drag de fichier est en cours (detecteur global)
@@ -79,6 +82,123 @@ let shelfStore;
 let prefsStore;
 let settingsWin = null;
 const getPrefs = () => (prefsStore ? prefsStore.all() : {});
+
+// ---- AirNotch : profil de l'appareil + table de pairs ------------------------
+const osCode = () => (process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'win' : 'linux');
+
+// Groupe d'appairage : hash du code saisi (vide = pas de code). Deux machines qui
+// partagent le meme code se reconnaissent comme "les tiennes" (badge + mode prive).
+function pairGroup() {
+  const code = (prefsStore && prefsStore.get('airnotchPairCode') || '').trim();
+  if (!code) return '';
+  return crypto.createHash('sha1').update('notchzfx:' + code).digest('hex').slice(0, 16);
+}
+
+// Profil annonce en broadcast (relu a chaque emission via getInfo).
+function selfProfile() {
+  const custom = (prefsStore && prefsStore.get('airnotchDeviceName') || '').trim();
+  return {
+    id: deviceId,
+    host: os.hostname(),
+    name: custom || os.hostname(),
+    os: osCode(),
+    form: selfForm,
+    group: pairGroup(),
+  };
+}
+
+// Identite jointe a chaque envoi (pour authentification/affichage cote destinataire).
+function selfIdentity() {
+  return { id: deviceId, name: selfProfile().name, group: pairGroup() };
+}
+
+// ---- Controle d'acces a la reception (modele AirDrop) -----------------------
+const pendingPrompts = new Map(); // coalesce les confirmations d'un meme appareil
+
+function promptAccept(meta) {
+  const key = meta.deviceId || meta.name || String(peers.size);
+  if (pendingPrompts.has(key)) return pendingPrompts.get(key);
+  const p = (async () => {
+    const name = meta.name || 'Un appareil';
+    try { app.focus({ steal: true }); } catch (_) {}
+    const r = await dialog.showMessageBox({
+      type: 'question',
+      buttons: ['Refuser', 'Accepter', 'Toujours accepter'],
+      defaultId: 1,
+      cancelId: 0,
+      message: `${name} veut t'envoyer « ${meta.filename || 'un fichier'} »`,
+      detail: "Cet appareil ne fait pas partie des tiens (pas le meme code d'appairage).",
+    });
+    if (r.response === 0) return false;
+    if (r.response === 2 && meta.deviceId) {
+      const trusted = (prefsStore.get('airnotchTrusted') || []).slice();
+      if (!trusted.some((t) => t.id === meta.deviceId)) {
+        trusted.push({ id: meta.deviceId, name });
+        prefsStore.set('airnotchTrusted', trusted);
+      }
+    }
+    return true;
+  })().finally(() => pendingPrompts.delete(key));
+  pendingPrompts.set(key, p);
+  return p;
+}
+
+// Autorise (ou non) un fichier entrant AVANT de le telecharger.
+async function authorizeIncoming(meta) {
+  const mode = prefsStore ? prefsStore.get('airnotchAcceptFrom') : 'paired';
+  if (mode === 'nobody') return false;
+  if (mode === 'everyone') return true;
+  // mode 'paired' : memes appareils (meme code) OU appareil deja approuve, sinon on demande.
+  const myGroup = pairGroup();
+  if (meta.group && myGroup && meta.group === myGroup) return true;
+  const trusted = prefsStore.get('airnotchTrusted') || [];
+  if (meta.deviceId && trusted.some((t) => t.id === meta.deviceId)) return true;
+  return promptAccept(meta);
+}
+
+// Liste des pairs visibles, triee (les tiens d'abord, puis par nom).
+function peerList() {
+  return Array.from(peers.values())
+    .map((p) => ({ ip: p.ip, host: p.host, name: p.name, os: p.os, form: p.form, mine: p.mine }))
+    .sort((a, b) => (a.mine === b.mine ? (a.name || '').localeCompare(b.name || '') : a.mine ? -1 : 1));
+}
+
+// Premier Mac decouvert : sert de relais AirDrop pour les PC.
+function macPeer() {
+  for (const p of peers.values()) if (p.os === 'mac') return p;
+  return null;
+}
+
+function pushPeers() {
+  broadcast('peers-updated', peerList());
+}
+
+// Detection best-effort portable/fixe (une fois au demarrage).
+function detectForm() {
+  if (process.platform === 'darwin') {
+    // hw.model ne dit plus "MacBook" sur Apple Silicon (ex. "Mac17,2") : on se fie
+    // a la presence d'une batterie interne (portables uniquement).
+    execFile('pmset', ['-g', 'batt'], (err, out) => {
+      if (!err && /InternalBattery/.test(out)) selfForm = 'laptop';
+    });
+  } else if (process.platform === 'win32') {
+    // Presence d'une batterie => portable. PACKAGE (chassis) via PowerShell.
+    execFile('powershell', ['-NoProfile', '-Command',
+      '(Get-CimInstance Win32_Battery | Measure-Object).Count'], (err, out) => {
+      if (!err && parseInt(String(out).trim(), 10) > 0) selfForm = 'laptop';
+    });
+  }
+}
+
+// Retire les pairs qui n'ont plus annonce depuis >10 s (ils annoncent toutes les 3 s).
+function expirePeers() {
+  const now = Date.now();
+  let changed = false;
+  for (const [ip, p] of peers) {
+    if (now - p.lastSeen > 10000) { peers.delete(ip); changed = true; }
+  }
+  if (changed) pushPeers();
+}
 
 // Media / calendrier / HUD
 let mediaHandle = null;
@@ -181,14 +301,15 @@ function notchAtCursor() {
 // SANS encoche physique (externe) recoit une encoche fermee TRES FINE (discrete)
 // -> pas de gros bandeau noir ; elle s'ouvre quand meme par le haut-centre.
 function displayGeo(display) {
-  if (probedGeo && display.internal) return { ...probedGeo };
-  const base = baseGeometry(display);
-  if (!display.internal) {
-    // Encoche externe : moitie plus fine (6px) mais bien arrondie. br est borne par
-    // (h - tr) dans notchPath -> tr petit (2) pour laisser l'arrondi du bas s'exprimer (br 4).
+  // Seul macOS a une VRAIE encoche physique (ecran interne). Windows/Linux, et tout
+  // ecran externe : encoche SIMULEE fine (6px) et discrete -> pas de gros bandeau.
+  // br borne par (h - tr) dans notchPath -> tr petit (2) pour laisser l'arrondi du bas.
+  const macInternal = process.platform === 'darwin' && display.internal;
+  if (!macInternal) {
     return { closedWidth: 140, closedHeight: 6, tr: 2, br: 4, hasNotch: false, simulated: true };
   }
-  return base;
+  if (probedGeo) return { ...probedGeo };
+  return baseGeometry(display);
 }
 
 const drawnClosedW = (n) => n.geo.closedWidth + 8;
@@ -280,6 +401,34 @@ function openActiveNotch(tab, holdMs) {
   if (!n) return;
   if (holdMs) n.holdOpenUntil = Date.now() + holdMs;
   openNotch(n, tab);
+}
+
+// ---- Notification "peek" : l'encoche fermee GROSSIT brievement en pilule (sans
+// ouvrir la vue complete), pour signaler un fichier recu. La fenetre s'agrandit un
+// peu (place pour la forme), le renderer anime la bulle + flash, puis on revient. ----
+const NOTIF_MS = 1800;
+function setBoundsPeek(n) {
+  if (!alive(n) || n.fixed) return; // ecran externe : fenetre deja pleine taille
+  const d = n.display;
+  const y = process.platform === 'win32' ? d.workArea.y : d.bounds.y;
+  // Marge : cible +120, le rebond (zeta 0.42) depasse d'~30px -> on prend +185
+  // pour ne JAMAIS clipper le depassement de la pilule.
+  const w = Math.round(n.geo.closedWidth + 8 + 185);
+  const h = 74;
+  n.win.setBounds({ x: Math.round(d.bounds.x + d.bounds.width / 2 - w / 2), y, width: w, height: h }, false);
+}
+function notifyNotch(n) {
+  if (!alive(n) || n.state === 'open') return; // deja ouvert : pas de peek
+  clearTimeout(n.notifTimer);
+  n.notifActive = true;
+  setBoundsPeek(n);
+  n.win.webContents.send('notch-notify', { on: true });
+  n.notifTimer = setTimeout(() => {
+    n.notifActive = false;
+    n.win.webContents.send('notch-notify', { on: false });
+    // Retablit la taille fermee APRES l'animation de retour (evite le clip de la forme).
+    setTimeout(() => { if (alive(n) && !n.notifActive && n.state === 'closed') setBounds(n, 'closed'); }, 380);
+  }, NOTIF_MS);
 }
 
 // Depot attrape par la fenetre native : les fichiers ont deja ete CONSOMMES cote
@@ -568,7 +717,7 @@ function createNotch(display) {
     if (lastMedia) win.webContents.send('media', lastMedia);
     if (calendarData) win.webContents.send('calendar', calendarData);
     win.webContents.send('notch-state', { state: 'closed' });
-    if (peerIp) win.webContents.send('peer-updated', { ip: peerIp, host: peerHost });
+    win.webContents.send('peers-updated', peerList());
     win.webContents.send('shelf-items', shelfStore.load());
   });
   return n;
@@ -634,6 +783,10 @@ app.whenReady().then(async () => {
   shelfStore = new ShelfStore(app.getPath('userData'));
   prefsStore = new PrefsStore(app.getPath('userData'));
   prefsStore.load();
+  // Identite stable de la machine (persistee une seule fois) : indispensable pour
+  // memoriser les appareils de confiance entre deux lancements.
+  deviceId = prefsStore.get('airnotchDeviceId');
+  if (!deviceId) { deviceId = crypto.randomUUID(); prefsStore.set('airnotchDeviceId', deviceId); }
   // Aligne l'element de connexion sur la preference sauvegardee.
   try {
     if (process.platform !== 'linux') {
@@ -669,35 +822,83 @@ app.whenReady().then(async () => {
     });
   });
 
-  // Serveur de reception : non bloquant, avec nouvelle tentative si le port est pris.
-  // On depose sur l'encoche de l'ecran actif ; les autres se synchronisent via le
-  // broadcast de sauvegarde du shelf.
-  const onFileReceived = (savedPath, name, intent) => {
-    // Fichier relaye depuis le PC pour AirDrop : sur le Mac, on ouvre directement le
-    // panneau AirDrop avec ce fichier (au lieu de l'ajouter au shelf).
+  // Serveur de reception. Le fichier apparait DES LE DEBUT du transfert (placeholder +
+  // anneau de progression facon App Store), puis se finalise a la fin.
+  const incomingNotch = new Map(); // fileId -> encoche cible (route progression + fin)
+
+  // Debut de transfert : cree le placeholder + declenche la notif "peek".
+  const onIncomingStart = ({ fileId, name, size, sender }) => {
+    const from = sender && sender.name ? { id: sender.id || '', name: sender.name } : null;
+    const n = notchAtCursor();
+    if (!alive(n)) return;
+    incomingNotch.set(fileId, n);
+    n.win.webContents.send('file-incoming', { id: fileId, name, size, from });
+    notifyNotch(n); // notif des le debut (avant la fin du telechargement)
+  };
+
+  // Progression : met a jour l'anneau du placeholder correspondant.
+  const onIncomingProgress = ({ fileId, received, size, failed }) => {
+    const n = incomingNotch.get(fileId);
+    if (alive(n)) n.win.webContents.send('file-progress', { id: fileId, received, size, failed: !!failed });
+    if (failed) incomingNotch.delete(fileId);
+  };
+
+  // Fin de transfert : finalise le placeholder (chemin reel + vignette).
+  const onFileReceived = (savedPath, name, intent, sender, fileId) => {
+    // Fichier relaye depuis le PC pour AirDrop : sur le Mac, on ouvre directement le panneau.
     if (intent === 'airdrop' && process.platform === 'darwin' && airdropPaths([savedPath])) {
       openActiveNotch('home', 1500);
       return;
     }
-    const n = notchAtCursor();
-    if (alive(n)) n.win.webContents.send('file-received', { path: savedPath, name });
-    openActiveNotch('shelf', 3000);
+    const from = sender && sender.name ? { id: sender.id || '', name: sender.name } : null;
+    const n = incomingNotch.get(fileId) || notchAtCursor();
+    incomingNotch.delete(fileId);
+    if (alive(n)) {
+      n.win.webContents.send('file-received', { path: savedPath, name, from, id: fileId });
+      if (!from) notifyNotch(n); // origine locale (capture/AirDrop) : pas de start -> notif ici
+    }
+    // Origine LOCALE (capture d'ecran, AirDrop recu) : on partage aussi au reseau.
+    // Origine RESEAU (from present) : surtout PAS -> eviterait une boucle infinie.
+    if (!from) shareToAllPeers([savedPath]).catch(() => {});
   };
   const tryStartServer = (attempt) => {
-    net.startServer(inboxDir, onFileReceived).catch((err) => {
+    net.startServer(inboxDir, {
+      onFile: onFileReceived,
+      onStart: onIncomingStart,
+      onProgress: onIncomingProgress,
+      onClear: () => clearLibrary(false),
+    }, authorizeIncoming).catch((err) => {
       console.warn(`[net] serveur indisponible (${err.code || err.message}), tentative ${attempt}/5`);
       if (attempt < 5) setTimeout(() => tryStartServer(attempt + 1), 3000);
     });
   };
   tryStartServer(1);
 
-  net.startDiscovery(selfId, (ip, host) => {
-    if (ip && (ip !== peerIp || host !== peerHost)) {
-      peerIp = ip;
-      peerHost = host;
-      broadcast('peer-updated', { ip, host });
+  detectForm();
+  net.startDiscovery(selfProfile, (ip, data) => {
+    if (!ip) return;
+    const visibility = prefsStore ? prefsStore.get('airnotchVisibility') : 'open';
+    const myGroup = pairGroup();
+    // Mode prive : on n'affiche QUE les appareils qui partagent notre code.
+    if (visibility === 'private') {
+      if (!myGroup || data.group !== myGroup) {
+        if (peers.delete(ip)) pushPeers();
+        return;
+      }
+    }
+    const mine = !!(data.group && data.group === myGroup);
+    const prev = peers.get(ip);
+    peers.set(ip, {
+      ip, id: data.id, host: data.host, name: data.name || data.host,
+      os: data.os || 'win', form: data.form || 'desktop', group: data.group || '', mine,
+      lastSeen: Date.now(),
+    });
+    // Ne rediffuse que si la composition visible a change (evite le spam a 3 s).
+    if (!prev || prev.name !== data.name || prev.mine !== mine || prev.os !== data.os || prev.form !== data.form) {
+      pushPeers();
     }
   });
+  setInterval(expirePeers, 3000);
 
   // Reception AirDrop -> ajoute au shelf (le fichier reste dans ~/Downloads).
   startAirdropWatch((airdropPath) => {
@@ -709,50 +910,55 @@ app.whenReady().then(async () => {
     if (!prefsStore || prefsStore.get('screenshotToShelf')) onFileReceived(shotPath, path.basename(shotPath));
   });
 
-  // Media (now playing via AppleScript) : diffuse a toutes les encoches.
-  mediaHandle = mediaLib.startMedia({
-    getSource: () => (prefsStore ? prefsStore.get('musicSource') : 'spotify'),
-    onUpdate: (info) => {
-      lastMedia = info;
-      if (info && info.artworkUrl === artColorCache.url) info.artColor = artColorCache.color; // couleur en cache
-      broadcast('media', info);
-      updateLiveClosed();
-      // Couleur de la pochette (async si nouvelle URL) -> re-broadcast quand prete.
-      computeArtColor(info && info.artworkUrl, (color) => {
-        if (lastMedia !== info) return;
-        if ((info.artColor || null) === (color || null)) return;
-        info.artColor = color || null;
+  // Media / HUD / calendrier : helpers 100% macOS (AppleScript, CoreAudio, EventKit).
+  // Sur Windows on NE les lance PAS (osascript/helpers absents -> echecs en boucle) :
+  // seule la bibliotheque de fichiers est exposee.
+  if (process.platform === 'darwin') {
+    // Media (now playing via AppleScript) : diffuse a toutes les encoches.
+    mediaHandle = mediaLib.startMedia({
+      getSource: () => (prefsStore ? prefsStore.get('musicSource') : 'spotify'),
+      onUpdate: (info) => {
+        lastMedia = info;
+        if (info && info.artworkUrl === artColorCache.url) info.artColor = artColorCache.color; // couleur en cache
         broadcast('media', info);
-      });
-    },
-    intervalMs: 1000,
-  });
-
-  // HUD volume / luminosite (helper natif : CoreAudio + DisplayServices).
-  hudHandle = startHudMonitor({
-    onVolume: (v, muted) => showHud('volume', v, muted),
-    onBrightness: (v) => showHud('brightness', v, false),
-    onLog: () => {},
-  });
-
-  // Intercepteur de touches media : consomme volume/luminosite pour SUPPRIMER la
-  // jauge native (macOS 26 la dessine in-process dans ControlCenter -> pas tuable).
-  // Necessite la permission Accessibilite ; on guide l'utilisateur si absente.
-  if (!prefsStore || prefsStore.get('replaceSystemHUD')) {
-    mediaKeysHandle = startMediaKeys({
-      onStatus: (st) => {
-        accessibilityStatus = st;
-        if (st === 'need-accessibility') promptAccessibilityOnce();
+        updateLiveClosed();
+        // Couleur de la pochette (async si nouvelle URL) -> re-broadcast quand prete.
+        computeArtColor(info && info.artworkUrl, (color) => {
+          if (lastMedia !== info) return;
+          if ((info.artColor || null) === (color || null)) return;
+          info.artColor = color || null;
+          broadcast('media', info);
+        });
       },
-      onKey: () => {}, // le changement est applique par le helper ; le HUDMonitor affiche le HUD
+      intervalMs: 1000,
+    });
+
+    // HUD volume / luminosite (helper natif : CoreAudio + DisplayServices).
+    hudHandle = startHudMonitor({
+      onVolume: (v, muted) => showHud('volume', v, muted),
+      onBrightness: (v) => showHud('brightness', v, false),
       onLog: () => {},
     });
-  }
 
-  // Calendrier (EventKit via helper compile) : pre-build + 1er chargement + refresh.
-  buildCalendarHelper().catch(() => {});
-  refreshCalendar();
-  calendarTimer = setInterval(refreshCalendar, 5 * 60 * 1000);
+    // Intercepteur de touches media : consomme volume/luminosite pour SUPPRIMER la
+    // jauge native (macOS 26 la dessine in-process dans ControlCenter -> pas tuable).
+    // Necessite la permission Accessibilite ; on guide l'utilisateur si absente.
+    if (!prefsStore || prefsStore.get('replaceSystemHUD')) {
+      mediaKeysHandle = startMediaKeys({
+        onStatus: (st) => {
+          accessibilityStatus = st;
+          if (st === 'need-accessibility') promptAccessibilityOnce();
+        },
+        onKey: () => {}, // le changement est applique par le helper ; le HUDMonitor affiche le HUD
+        onLog: () => {},
+      });
+    }
+
+    // Calendrier (EventKit via helper compile) : pre-build + 1er chargement + refresh.
+    buildCalendarHelper().catch(() => {});
+    refreshCalendar();
+    calendarTimer = setInterval(refreshCalendar, 5 * 60 * 1000);
+  }
 
   // Debounce : les transitions (Bureau/Mission Control/plein ecran) emettent des
   // rafales de display-metrics-changed ; on les coalesce pour ne pas repositionner
@@ -776,19 +982,58 @@ ipcMain.on('media-seek', (_e, posSec) => {
   mediaLib.mediaSeek(posSec, prefsStore ? prefsStore.get('musicSource') : 'spotify').catch(() => {});
 });
 
-ipcMain.handle('send-files', async (_e, paths) => {
-  if (!peerIp) return { ok: false, error: 'Aucun pair detecte' };
+// Envoie chaque fichier vers chaque ip cible. Un fileId partage par fichier permet au
+// destinataire de correler debut/progression/fin (anneau de telechargement).
+async function sendToTargets(paths, targetIps, intent) {
+  const identity = selfIdentity();
   const results = [];
   for (const p of paths) {
-    try {
-      await net.sendFile(peerIp, p);
-      results.push({ path: p, ok: true });
-    } catch (err) {
-      results.push({ path: p, ok: false, error: String(err) });
+    const fileId = `f${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    for (const ip of targetIps) {
+      try { await net.sendFile(ip, p, { intent, identity, fileId }); results.push({ path: p, ip, ok: true }); }
+      catch (err) { results.push({ path: p, ip, ok: false, error: String(err) }); }
     }
   }
-  return { ok: true, results };
+  return results;
+}
+
+// Bibliotheque commune : vide TOUT localement, et (si propagate) demande a chaque pair
+// de se vider aussi. Un vidage RECU du reseau ne se re-propage pas (pas de boucle).
+function clearLibrary(propagate) {
+  if (shelfStore) { shelfStore.save([]); broadcast('shelf-items', []); }
+  if (propagate) for (const p of peers.values()) net.sendClear(p.ip).catch(() => {});
+}
+
+// Bibliotheque commune : COPIE un fichier vers TOUS les appareils du reseau (aucune
+// selection). Les fichiers RECUS d'un pair ne repassent JAMAIS par ici -> pas de boucle.
+async function shareToAllPeers(paths) {
+  const ips = Array.from(peers.values()).map((p) => p.ip);
+  if (!paths || !paths.length || !ips.length) return { ok: false, error: 'aucun appareil' };
+  const results = await sendToTargets(paths, ips);
+  return { ok: !results.some((r) => !r.ok), results };
+}
+
+// Cibles par defaut du glisser-deposer direct (reglage all | one).
+function defaultTargets() {
+  const mode = prefsStore ? prefsStore.get('airnotchDefaultSend') : 'all';
+  const all = Array.from(peers.values()).map((p) => p.ip);
+  if (mode === 'one') {
+    const chosen = prefsStore ? prefsStore.get('airnotchDefaultTarget') : '';
+    if (chosen && peers.has(chosen)) return [chosen];
+    return all.slice(0, 1); // repli : le premier appareil dispo
+  }
+  return all;
+}
+
+ipcMain.handle('send-files', async (_e, paths) => {
+  const targets = defaultTargets();
+  if (!targets.length) return { ok: false, error: 'Aucun appareil detecte' };
+  const results = await sendToTargets(paths, targets);
+  return { ok: !results.some((r) => !r.ok), results };
 });
+
+// Bibliotheque commune : le renderer signale un ajout LOCAL -> on copie a tous.
+ipcMain.handle('share-to-all', async (_e, paths) => shareToAllPeers(paths));
 
 // Vignette de fichier : uniquement pour les images (decodage nativeImage, sur).
 // NB : on n'utilise PAS app.getFileIcon() -> sur Electron 43 / macOS 26 il fait
@@ -844,21 +1089,60 @@ ipcMain.on('shelf-save', (e, items) => {
   broadcastExcept(e.sender, 'shelf-items', items);
 });
 
+// Taille lisible + fiche d'infos d'un fichier recu (qui l'a envoye, taille, date).
+function humanSize(bytes) {
+  const u = ['o', 'Ko', 'Mo', 'Go', 'To'];
+  let i = 0; let n = bytes;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(i ? 1 : 0)} ${u[i]}`;
+}
+function showFileInfo(filePath, from) {
+  let size = ''; let mtime = '';
+  try {
+    const st = fs.statSync(filePath);
+    size = humanSize(st.size);
+    mtime = st.mtime.toLocaleString('fr-FR');
+  } catch (_) {}
+  try { app.focus({ steal: true }); } catch (_) {}
+  dialog.showMessageBox({
+    type: 'info',
+    message: path.basename(filePath),
+    detail: [
+      from && from.name ? `Envoye par : ${from.name}` : null,
+      size ? `Taille : ${size}` : null,
+      mtime ? `Recu le : ${mtime}` : null,
+      `Emplacement : ${filePath}`,
+    ].filter(Boolean).join('\n'),
+    buttons: ['OK', 'Afficher dans le Finder'],
+    defaultId: 0,
+    cancelId: 0,
+  }).then((r) => { if (r.response === 1) shell.showItemInFolder(filePath); }).catch(() => {});
+}
+
 // Menu contextuel d'items du shelf (façon ShelfItemViewModel.swift, multi-selection).
 ipcMain.on('item-menu', (e, payload) => {
   preventClose = true;
   const paths = payload.paths || [];
+  const from = payload.from || null;
   const suffix = paths.length > 1 ? ` (${paths.length})` : '';
   const send = (action) => e.sender.send('menu-action', { action, paths });
-  const template = [
+  const template = [];
+  // Fichier recu d'un autre appareil : qui l'a envoye (clic -> fiche d'infos).
+  if (from && from.name && paths.length === 1) {
+    template.push(
+      { label: `Envoye par ${from.name}`, click: () => showFileInfo(paths[0], from) },
+      { type: 'separator' },
+    );
+  }
+  template.push(
     { label: 'Ouvrir' + suffix, click: () => send('open') },
     {
       label: process.platform === 'darwin' ? 'Afficher dans le Finder' : "Afficher dans l'Explorateur",
       click: () => send('reveal'),
     },
     { type: 'separator' },
-    { label: (peerHost ? `Envoyer a ${peerHost}` : 'Envoyer au PC') + suffix, enabled: !!peerIp, click: () => send('send-peer') },
-  ];
+    { label: (peers.size ? `Partager sur le réseau (${peers.size})` : 'Partager sur le réseau') + suffix, enabled: peers.size > 0, click: () => send('send-peer') },
+  );
   if (process.platform === 'darwin') {
     template.push({ label: 'Partager via AirDrop…' + suffix, click: () => send('airdrop') });
   }
@@ -902,8 +1186,10 @@ ipcMain.on('airdrop', (_e, { paths }) => airdropPaths(paths));
 // Relais AirDrop depuis le PC : on envoie chaque fichier au pair (Mac) avec l'intent
 // 'airdrop'. A l'arrivee, le Mac ouvre le panneau AirDrop (cf. onFileReceived).
 ipcMain.on('airdrop-via-peer', (_e, { paths }) => {
-  if (!peerIp || !paths || !paths.length) return;
-  paths.forEach((p) => net.sendFile(peerIp, p, 'airdrop').catch((err) => console.warn('relais AirDrop echoue:', err.message)));
+  const mac = macPeer();
+  if (!mac || !paths || !paths.length) return;
+  const identity = selfIdentity();
+  paths.forEach((p) => net.sendFile(mac.ip, p, { intent: 'airdrop', identity }).catch((err) => console.warn('relais AirDrop echoue:', err.message)));
 });
 
 // Menu de partage complet (autres services) — conserve au cas ou.
@@ -944,7 +1230,7 @@ ipcMain.on('gear-menu', (e) => {
   preventClose = true;
   const menu = Menu.buildFromTemplate([
     { label: `Cette machine : ${net.localIPv4()}`, enabled: false },
-    { label: peerIp ? `Pair : ${peerHost || ''} ${peerIp}` : 'Pair : aucun', enabled: false },
+    { label: peers.size ? `Appareils : ${peers.size}` : 'Appareils : aucun', enabled: false },
     { type: 'separator' },
     { label: 'Ouvrir le dossier de reception', click: () => shell.openPath(inboxDir) },
     { label: 'Vider le shelf', click: () => e.sender.send('menu-action', { action: 'clear-shelf' }) },
@@ -1003,8 +1289,7 @@ function settingsCalendars() {
 ipcMain.handle('settings-info', () => ({
   ip: net.localIPv4(),
   inbox: inboxDir,
-  peer: peerIp,
-  peerHost: peerHost,
+  peers: peerList(),
   version: app.getVersion(),
   versionName: VERSION_NAME,
   displays: screen.getAllDisplays().map((d) => ({
@@ -1027,11 +1312,16 @@ ipcMain.on('set-pref', (_e, { key, value } = {}) => {
     liveNotches().forEach((n) => { try { n.win.setContentProtection(!!value); } catch (_) {} });
   }
   if (key === 'showMenuBarIcon') applyTrayVisibility(!!value);
+  // Changement de visibilite / code : on repart d'une table vierge, elle se remplit
+  // en <3 s avec le filtrage a jour.
+  if (key === 'airnotchVisibility' || key === 'airnotchPairCode') { peers.clear(); pushPeers(); }
   // Les encoches (renderer) suivent les autres prefs en direct via ce broadcast.
   broadcast('prefs', getPrefs());
 });
 
-ipcMain.on('clear-shelf', () => { if (shelfStore) { shelfStore.save([]); broadcast('shelf-items', []); } });
+ipcMain.on('clear-shelf', () => clearLibrary(true));
+// Vidage depuis la bulle (bouton/menu) : vide localement + propage a tous les appareils.
+ipcMain.on('library-clear', () => clearLibrary(true));
 ipcMain.on('open-inbox', () => shell.openPath(inboxDir));
 ipcMain.on('open-external', (_e, url) => { if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url); });
 ipcMain.handle('check-updates', () => { shell.openExternal('https://github.com'); return { ok: true }; });

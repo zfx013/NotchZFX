@@ -1,7 +1,7 @@
 {
   "name": "notchzfx",
   "productName": "NotchZFX",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Une encoche interactive facon Dynamic Island pour macOS, avec etagere de fichiers, lecteur media, calendrier, HUD volume/luminosite et synchro de fichiers Mac/PC par le reseau local.",
   "main": "src/main/main.js",
   "author": "zfx013",

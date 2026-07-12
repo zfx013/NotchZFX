@@ -1,62 +1,98 @@
 <div align="center">
 
+<img src="docs/media/cover-intro.png" alt="NotchZFX" width="820" />
+
 # NotchZFX 😉
 
-**Une encoche interactive façon Dynamic Island pour macOS — étagère de fichiers, lecteur média, calendrier, HUD volume/luminosité — plus la synchro de fichiers Mac ⇄ PC sur le réseau local.**
+**La barre d'encoche qui relie tes appareils.**
+Glisse un fichier. Il apparaît instantanément sur toutes tes machines du même réseau — Mac **et** PC.
 
-[**⬇️ Télécharger**](https://zfx013.github.io/NotchZFX/) · [Releases](https://github.com/zfx013/NotchZFX/releases) · [Signaler un bug](https://github.com/zfx013/NotchZFX/issues)
+[![version](https://img.shields.io/badge/version-0.2.0-b98cff)](https://github.com/zfx013/NotchZFX/releases/latest)
+[![platform](https://img.shields.io/badge/macOS-Apple%20Silicon-0a0a11)](#-télécharger)
+[![platform](https://img.shields.io/badge/Windows-x64%20%7C%20ARM64-0a0a11)](#-télécharger)
+[![built with](https://img.shields.io/badge/Electron-43-2c2c31)](https://www.electronjs.org/)
+
+### ▶️ [Regarder la démo (vidéo, 41 s)](docs/media/notchzfx-promo.mp4)
+
+<a href="docs/media/notchzfx-promo.mp4">
+  <img src="docs/media/cover-drop.png" alt="Voir la vidéo de démonstration" width="720" />
+</a>
 
 </div>
 
 ---
 
-## ✨ Fonctionnalités
+## ✨ Le principe
 
-- **Encoche interactive** — s'ouvre au survol, animations spring fidèles à Boring Notch.
-- **Étagère (Shelf)** — glisse des fichiers vers l'encoche, ils s'y posent (multi-sélection au lasso, glisser-déposer sortant).
-- **Capture automatique** — les **AirDrop reçus** et les **captures d'écran** se copient dans l'étagère.
-- **Lecteur média** — pochette, titre, artiste, progression, contrôles play/pause/suivant/précédent (Spotify & Apple Music via AppleScript).
-- **Activité musicale** — pochette + spectre animé de chaque côté de l'encoche fermée.
-- **HUD volume / luminosité** — remplace la jauge native de macOS par une jauge dans l'encoche.
-- **Calendrier** — les événements du jour dans l'encoche (EventKit).
-- **Synchro PC** — envoie des fichiers vers un pair sur le réseau local, découverte automatique.
-- **Multi-écran** — une encoche par écran (encoche fine et discrète sur les écrans externes).
-- **Fenêtre Paramètres complète** — 11 pages, tout est réglable.
+NotchZFX transforme l'encoche de ton écran en **bibliothèque commune** partagée sur ton réseau local.
 
-## ⬇️ Installation
+- **Tu déposes un fichier** dans l'encoche (drag & drop) → il est **copié automatiquement** sur tous les appareils allumés du même réseau.
+- **Tout le monde a les mêmes fichiers.** Aucune sélection, aucun destinataire à choisir, aucun réglage.
+- Ça marche **entre Mac et Windows**, sans cloud, sans compte : tout reste sur ton LAN.
 
-Rendez-vous sur la **[page de téléchargement](https://zfx013.github.io/NotchZFX/)** ou les **[releases](https://github.com/zfx013/NotchZFX/releases)** :
+<div align="center">
+<img src="docs/media/hero-library.png" alt="La bibliothèque commune" width="760" />
+</div>
+
+## 🎬 Ce que ça fait
+
+| | |
+|---|---|
+| 🗂️ **Bibliothèque commune** | Dépose une fois, c'est partout. Copie automatique vers tous les appareils du réseau. |
+| ⏳ **Anneau de progression** | Le fichier apparaît **dès le début** du transfert, avec un anneau qui se remplit (façon App Store). |
+| 🟣 **Fichiers reçus repérables** | Anneau et pastille **violets** + le nom de l'expéditeur au clic droit. |
+| 🧹 **Vider partout** | Vide la bibliothèque d'un côté → elle se vide sur tous les appareils. |
+| 👀 **Voir le réseau** | Une pastille discrète compte les appareils en ligne ; survole-la pour la liste (lecture seule). |
+| 🔔 **Notif sans texte** | Une pulsation violette de l'encoche quand un fichier arrive. |
+| 🍎 **Bonus macOS** | Lecteur « now playing », calendrier, jauges volume/luminosité, AirDrop. |
+
+<div align="center">
+<img src="docs/media/device-list.png" alt="Liste des appareils sur le réseau" width="760" />
+</div>
+
+## 📥 Télécharger
+
+> Dernière version : **v0.2.0**
 
 | Plateforme | Fichier |
 |---|---|
-| **macOS** (Apple Silicon / Intel) | `NotchZFX-*.dmg` |
-| **Windows** | `NotchZFX-Setup-*.exe` |
-| **Linux** | `NotchZFX-*.AppImage` / `.deb` |
+| 🍎 **macOS** (Apple Silicon) | [`NotchZFX-0.2.0-mac.zip`](https://github.com/zfx013/NotchZFX/releases/latest/download/NotchZFX-0.2.0-mac.zip) |
+| 🪟 **Windows** (Intel/AMD) | [`NotchZFX-0.2.0-win-x64.zip`](https://github.com/zfx013/NotchZFX/releases/latest/download/NotchZFX-0.2.0-win-x64.zip) |
+| 🪟 **Windows** (ARM64) | [`NotchZFX-0.2.0-win-arm64.zip`](https://github.com/zfx013/NotchZFX/releases/latest/download/NotchZFX-0.2.0-win-arm64.zip) |
 
-> macOS : l'app est signée ad-hoc. Au premier lancement, faites **clic droit → Ouvrir**, puis autorisez les demandes de permission (Automatisation pour la musique, Calendrier). Les fonctions natives (encoche de drop, HUD, calendrier) sont spécifiques à macOS.
+👉 Ou va sur la **[page des Releases](https://github.com/zfx013/NotchZFX/releases/latest)**.
 
-## 🛠️ Développement
+**Installation** — dézippe puis lance l'app. C'est un binaire **non signé** :
+- **macOS** : clic droit → *Ouvrir* la première fois (Gatekeeper).
+- **Windows** : *Informations complémentaires → Exécuter quand même* (SmartScreen). Autorise le réseau **privé** quand le pare-feu le demande.
+
+## ⚙️ Comment ça marche
+
+- **Découverte** : chaque appareil s'annonce en **broadcast UDP** (port 8788) toutes les 3 s ; il disparaît de la liste après 10 s de silence.
+- **Transfert** : **HTTP direct** de pair à pair (port 8787), en streaming (taille illimitée), avec un anneau de progression en temps réel.
+- **Sécurité** : réception ouverte aux appareils du **même réseau local** par défaut (le broadcast ne franchit pas les routeurs). Réglable (`paired` / `nobody`).
+- **Zéro cloud** : rien ne sort de ton réseau. Aucun compte, aucun serveur tiers.
+
+> ℹ️ La découverte est **locale au sous-réseau**. Certains WiFi publics (« isolation client ») bloquent le pair-à-pair — utilise un réseau de confiance.
+
+## 🪟 Sur Windows
+
+Windows se concentre sur **le partage de fichiers** (le cœur de NotchZFX). L'encoche y est **compacte** (façon écran externe). Le lecteur média, le calendrier et les jauges système sont **spécifiques à macOS** et ne sont donc pas activés sur Windows.
+
+## 🛠️ Compiler depuis les sources
 
 ```bash
 npm install
-npm start          # lance en mode dev (Electron)
+npm start            # lancer en dev
+npm run package:mac  # build macOS (.app signé localement)
+npx electron-builder --win zip --x64 --arm64   # builds Windows
 ```
 
-Empaqueter l'app macOS localement (bundle signé ad-hoc + helpers natifs) :
+## 📜 Licence
 
-```bash
-bash scripts/package-mac.sh   # -> dist/NotchZFX.app
-```
+Voir [LICENSE](LICENSE).
 
-## 🏗️ Architecture
-
-- **Electron** (process principal `src/main/main.js`, renderer `src/renderer/`).
-- **Helpers natifs macOS** (Swift, compilés en `.app` signées ad-hoc) :
-  - `DragCatcher` — capture native des drops de fichiers.
-  - `HUDMonitor` — lecture volume (CoreAudio) + luminosité (DisplayServices).
-  - `CalendarHelper` — événements & rappels (EventKit).
-- **AppleScript** pour le now-playing / contrôle média (MediaRemote étant verrouillé sur macOS récents).
-
-## 📄 Licence
-
-MIT
+<div align="center">
+<br>
+<img src="docs/media/cover-outro.png" alt="NotchZFX — Glisse un fichier. Il est partout." width="720" />
+</div>

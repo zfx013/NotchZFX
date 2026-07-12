@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('notch', {
   // Etat / geometrie pilotes par le process principal
   onNotchState: (cb) => ipcRenderer.on('notch-state', (_e, s) => cb(s)),
+  onNotchNotify: (cb) => ipcRenderer.on('notch-notify', (_e, d) => cb(d)),
   onSwitchTab: (cb) => ipcRenderer.on('switch-tab', (_e, t) => cb(t)),
   onGeometry: (cb) => ipcRenderer.on('geometry', (_e, g) => cb(g)),
   onPrefs: (cb) => ipcRenderer.on('prefs', (_e, p) => cb(p)),
@@ -22,6 +23,9 @@ contextBridge.exposeInMainWorld('notch', {
   // Fichiers
   sendFiles: (paths) => ipcRenderer.invoke('send-files', paths),
   onFileReceived: (cb) => ipcRenderer.on('file-received', (_e, d) => cb(d)),
+  onFileIncoming: (cb) => ipcRenderer.on('file-incoming', (_e, d) => cb(d)),
+  onFileProgress: (cb) => ipcRenderer.on('file-progress', (_e, d) => cb(d)),
+  clearLibrary: () => ipcRenderer.send('library-clear'),
   onExternalDrop: (cb) => ipcRenderer.on('external-drop', (_e, d) => cb(d)),
   getThumb: (p) => ipcRenderer.invoke('get-thumb', p),
   startDrag: (p) => ipcRenderer.send('start-drag', p),
@@ -42,13 +46,15 @@ contextBridge.exposeInMainWorld('notch', {
   shareMenu: (paths, x, y) => ipcRenderer.send('share-menu', { paths, x, y }),
   airdrop: (paths) => ipcRenderer.send('airdrop', { paths }),
   airdropViaPeer: (paths) => ipcRenderer.send('airdrop-via-peer', { paths }),
+  // Bibliotheque commune : liste des appareils du reseau (lecture seule) + partage a tous
+  onPeers: (cb) => ipcRenderer.on('peers-updated', (_e, list) => cb(list)),
+  shareToAll: (paths) => ipcRenderer.invoke('share-to-all', paths),
   pickFiles: () => ipcRenderer.invoke('pick-files'),
   saveText: (text) => ipcRenderer.invoke('save-text', text),
 
   platform: process.platform,
 
   // Reseau
-  onPeerUpdated: (cb) => ipcRenderer.on('peer-updated', (_e, d) => cb(d)),
   onSelfInfo: (cb) => ipcRenderer.on('self-info', (_e, d) => cb(d)),
 
   quit: () => ipcRenderer.send('quit-app'),
@@ -70,5 +76,5 @@ contextBridge.exposeInMainWorld('settings', {
   openExternal: (url) => ipcRenderer.send('open-external', url),
   checkUpdates: () => ipcRenderer.invoke('check-updates'),
   quitApp: () => ipcRenderer.send('quit-app'),
-  onPeer: (cb) => ipcRenderer.on('peer-updated', (_e, d) => cb(d)),
+  onPeers: (cb) => ipcRenderer.on('peers-updated', (_e, list) => cb(list)),
 });

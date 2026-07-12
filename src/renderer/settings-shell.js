@@ -124,17 +124,13 @@
     return s;
   }
 
-  // ------------------------------------------------- Mise a jour du pair (live)
-  function applyPeer(d) {
-    state.info.peer = d && d.ip ? d.ip : null;
-    state.info.peerHost = d && d.host ? d.host : '';
+  // -------------------------------------- Mise a jour de la liste d'appareils (live)
+  function applyPeers(list) {
+    const peers = Array.isArray(list) ? list : [];
+    state.info.peers = peers;
     // Met a jour uniquement le champ live si la page Sync est affichee.
     const node = document.querySelector('[data-live="peer"]');
-    if (node) {
-      node.textContent = state.info.peer
-        ? `${state.info.peerHost || ''} ${state.info.peer}`.trim()
-        : 'aucun';
-    }
+    if (node) node.textContent = peers.length ? `${peers.length} appareil${peers.length > 1 ? 's' : ''}` : 'aucun';
   }
 
   // ------------------------------------------------------------------ Demarrage
@@ -148,7 +144,7 @@
       console.warn('chargement parametres echoue:', err);
     }
     renderContent();
-    if (api.onPeer) api.onPeer(applyPeer);
+    if (api.onPeers) api.onPeers(applyPeers);
   }
 
   init();
