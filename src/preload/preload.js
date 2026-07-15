@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('notch', {
   // Shelf : persistance
   onShelfItems: (cb) => ipcRenderer.on('shelf-items', (_e, items) => cb(items)),
   saveShelf: (items) => ipcRenderer.send('shelf-save', items),
+  removeShared: (ids) => ipcRenderer.send('remove-shared', ids),
+  onShelfRemove: (cb) => ipcRenderer.on('shelf-remove', (_e, ids) => cb(ids)),
 
   // Menus natifs
   popupItemMenu: (payload) => ipcRenderer.send('item-menu', payload),

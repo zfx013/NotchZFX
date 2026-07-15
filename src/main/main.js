@@ -6,7 +6,7 @@
 // - Etat ferme : click-through, sauf quand le curseur est sur la zone de l'encoche.
 // - Fermeture 100 ms apres sortie de la souris (ContentView.swift:542-557).
 // - Ouverture auto sur drag de fichier -> onglet shelf (DragDetector).
-const { app, BrowserWindow, ipcMain, screen, shell, nativeImage, Tray, Menu, ShareMenu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell, nativeImage, Tray, Menu, ShareMenu, dialog, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -144,17 +144,50 @@ function promptAccept(meta) {
   return p;
 }
 
-// Autorise (ou non) un fichier entrant AVANT de le telecharger.
-async function authorizeIncoming(meta) {
+function isTrusted(id) {
+  if (!id) return false;
+  const trusted = (prefsStore && prefsStore.get('airnotchTrusted')) || [];
+  return trusted.some((t) => t.id === id);
+}
+
+// Marque un fichier recu du reseau comme "provenant d'ailleurs" -> Gatekeeper (macOS) /
+// SmartScreen (Windows) le controlent a l'ouverture, comme le fait deja AirDrop.
+function quarantineFile(filePath) {
+  try {
+    if (process.platform === 'darwin') {
+      execFile('xattr', ['-w', 'com.apple.quarantine', '0002;00000000;NotchZFX;', filePath], () => {});
+    } else if (process.platform === 'win32') {
+      fs.writeFile(filePath + ':Zone.Identifier', '[ZoneTransfer]\r\nZoneId=3\r\n', () => {});
+    }
+  } catch (_) {}
+}
+
+// Noyau d'autorisation NON bloquant (jamais de dialogue) : renvoie true si le pair est
+// deja de confiance selon le mode courant. 'everyone' -> tous, 'nobody' -> personne,
+// 'paired' -> meme code d'appairage ou appareil deja approuve.
+function canAcceptFrom(meta) {
   const mode = prefsStore ? prefsStore.get('airnotchAcceptFrom') : 'paired';
   if (mode === 'nobody') return false;
   if (mode === 'everyone') return true;
-  // mode 'paired' : memes appareils (meme code) OU appareil deja approuve, sinon on demande.
   const myGroup = pairGroup();
   if (meta.group && myGroup && meta.group === myGroup) return true;
-  const trusted = prefsStore.get('airnotchTrusted') || [];
-  if (meta.deviceId && trusted.some((t) => t.id === meta.deviceId)) return true;
+  return isTrusted(meta.deviceId);
+}
+
+// Autorise (ou non) un fichier entrant AVANT de le telecharger. En mode 'paired' un
+// appareil inconnu declenche une confirmation ; les autres modes sont directs.
+async function authorizeIncoming(meta) {
+  const mode = prefsStore ? prefsStore.get('airnotchAcceptFrom') : 'paired';
+  if (mode !== 'paired') return canAcceptFrom(meta);
+  if (canAcceptFrom(meta)) return true;
   return promptAccept(meta);
+}
+
+// Autorise (ou non) un ordre de vidage distant (/clear). Operation DESTRUCTIVE : on ne
+// demande jamais (pas de dialogue pour un ordre a distance), on accepte seulement un pair
+// deja de confiance -> un inconnu ne peut plus effacer la bibliotheque en mode paired/nobody.
+function authorizeClear(meta) {
+  return canAcceptFrom(meta || {});
 }
 
 // Liste des pairs visibles, triee (les tiens d'abord, puis par nom).
@@ -402,6 +435,25 @@ function openActiveNotch(tab, holdMs) {
   if (!n) return;
   if (holdMs) n.holdOpenUntil = Date.now() + holdMs;
   openNotch(n, tab);
+}
+
+// Ouvre/ferme l'encoche active (raccourci global). Utilise l'encoche sous le curseur.
+function toggleActiveNotch() {
+  const n = notchAtCursor();
+  if (!n) return;
+  if (n.state === 'open') closeNotch(n);
+  else openNotch(n, 'shelf');
+}
+
+// Un accelerateur macOS ("Cmd") ne s'enregistre pas sous Windows -> on rend Cmd/Command
+// portable (CommandOrControl) pour que le meme reglage marche sur les deux OS.
+function portableAccel(a) {
+  return String(a || '').replace(/\bCmd(OrCtrl)?\b|\bCommand\b/gi, 'CommandOrControl');
+}
+function registerShortcuts() {
+  try { globalShortcut.unregisterAll(); } catch (_) {}
+  const open = prefsStore && prefsStore.get('shortcutOpenNotch');
+  if (open) { try { globalShortcut.register(portableAccel(open), toggleActiveNotch); } catch (_) {} }
 }
 
 // ---- Notification "peek" : l'encoche fermee GROSSIT brievement en pilule (sans
@@ -852,15 +904,22 @@ app.whenReady().then(async () => {
       return;
     }
     const from = sender && sender.name ? { id: sender.id || '', name: sender.name } : null;
+    // Id PARTAGE : les fichiers venus du reseau en ont deja un (fileId) ; pour une origine
+    // locale (capture/AirDrop) on en genere un et on l'utilise AUSSI pour le partage ->
+    // tous les appareils referencent le meme item (suppression propageable par id).
+    const id = fileId || `f${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    // Fichier venu du RESEAU : on le met en quarantaine pour que Gatekeeper/SmartScreen
+    // le controlent a l'ouverture (AirDrop et captures sont deja marques par l'OS).
+    if (from && intent !== 'airdrop') quarantineFile(savedPath);
     const n = incomingNotch.get(fileId) || notchAtCursor();
     incomingNotch.delete(fileId);
     if (alive(n)) {
-      n.win.webContents.send('file-received', { path: savedPath, name, from, id: fileId });
+      n.win.webContents.send('file-received', { path: savedPath, name, from, id });
       if (!from) notifyNotch(n); // origine locale (capture/AirDrop) : pas de start -> notif ici
     }
     // Origine LOCALE (capture d'ecran, AirDrop recu) : on partage aussi au reseau.
     // Origine RESEAU (from present) : surtout PAS -> eviterait une boucle infinie.
-    if (!from) shareToAllPeers([savedPath]).catch(() => {});
+    if (!from) shareToAllPeers([savedPath], [id]).catch(() => {});
   };
   const tryStartServer = (attempt) => {
     net.startServer(inboxDir, {
@@ -868,6 +927,8 @@ app.whenReady().then(async () => {
       onStart: onIncomingStart,
       onProgress: onIncomingProgress,
       onClear: () => clearLibrary(false),
+      onRemove: (ids) => { if (Array.isArray(ids) && ids.length) broadcast('shelf-remove', ids); },
+      authorizeClear,
     }, authorizeIncoming).catch((err) => {
       console.warn(`[net] serveur indisponible (${err.code || err.message}), tentative ${attempt}/5`);
       if (attempt < 5) setTimeout(() => tryStartServer(attempt + 1), 3000);
@@ -880,9 +941,11 @@ app.whenReady().then(async () => {
     if (!ip) return;
     const visibility = prefsStore ? prefsStore.get('airnotchVisibility') : 'open';
     const myGroup = pairGroup();
-    // Mode prive : on n'affiche QUE les appareils qui partagent notre code.
-    if (visibility === 'private') {
-      if (!myGroup || data.group !== myGroup) {
+    // Mode prive : on n'affiche QUE les appareils qui partagent notre code. MAIS si
+    // aucun code n'est saisi (myGroup vide), on NE filtre pas -> sinon "Privé sans code"
+    // faisait disparaitre TOUS les appareils en silence (piege).
+    if (visibility === 'private' && myGroup) {
+      if (data.group !== myGroup) {
         if (peers.delete(ip)) pushPeers();
         return;
       }
@@ -900,6 +963,8 @@ app.whenReady().then(async () => {
     }
   });
   setInterval(expirePeers, 3000);
+
+  registerShortcuts(); // raccourci global d'ouverture de l'encoche (reglable)
 
   // Reception AirDrop -> ajoute au shelf (le fichier reste dans ~/Downloads).
   startAirdropWatch((airdropPath) => {
@@ -961,6 +1026,21 @@ app.whenReady().then(async () => {
     calendarTimer = setInterval(refreshCalendar, 5 * 60 * 1000);
   }
 
+  // Suite d'une MAJ Windows : si le swapper detache a echoue silencieusement, on
+  // l'apprend ici (statut ecrit sur disque) et on le signale au lieu de faire croire
+  // a une MAJ reussie.
+  try {
+    const st = updater.takeUpdateStatus && updater.takeUpdateStatus();
+    if (st && st.ok === false) {
+      dialog.showMessageBox({
+        type: 'warning',
+        message: 'La mise a jour n\'a pas pu etre installee',
+        detail: (st.msg ? st.msg + '\n\n' : '') + "L'application precedente a ete conservee. Si le probleme persiste, installe la derniere version manuellement.",
+        buttons: ['OK'],
+      }).catch(() => {});
+    }
+  } catch (_) {}
+
   // Verification de mise a jour au demarrage (toutes plateformes) : notification
   // cliquable si une version plus recente existe.
   if ((!prefsStore || prefsStore.get('autoCheckUpdates')) && updater.hasToken()) {
@@ -991,15 +1071,21 @@ ipcMain.on('media-seek', (_e, posSec) => {
 
 // Envoie chaque fichier vers chaque ip cible. Un fileId partage par fichier permet au
 // destinataire de correler debut/progression/fin (anneau de telechargement).
-async function sendToTargets(paths, targetIps, intent) {
+async function sendToTargets(paths, targetIps, intent, ids) {
   const identity = selfIdentity();
   const results = [];
-  for (const p of paths) {
-    const fileId = `f${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    for (const ip of targetIps) {
-      try { await net.sendFile(ip, p, { intent, identity, fileId }); results.push({ path: p, ip, ok: true }); }
-      catch (err) { results.push({ path: p, ip, ok: false, error: String(err) }); }
-    }
+  for (let i = 0; i < paths.length; i++) {
+    const p = paths[i];
+    // Id PARTAGE : si l'appelant en fournit un (drop local / capture), tous les appareils
+    // referencent le meme item -> la suppression d'un fichier peut se propager par id.
+    const fileId = (ids && ids[i]) || `f${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    // Envoi a tous les pairs EN PARALLELE : un pair lent/injoignable ne bloque plus les
+    // autres (avant : boucle sequentielle -> jusqu'a 60 s d'attente sur chaque pair mort).
+    const settled = await Promise.all(targetIps.map(async (ip) => {
+      try { await net.sendFile(ip, p, { intent, identity, fileId }); return { path: p, ip, ok: true }; }
+      catch (err) { return { path: p, ip, ok: false, error: String(err) }; }
+    }));
+    results.push(...settled);
   }
   return results;
 }
@@ -1008,15 +1094,23 @@ async function sendToTargets(paths, targetIps, intent) {
 // de se vider aussi. Un vidage RECU du reseau ne se re-propage pas (pas de boucle).
 function clearLibrary(propagate) {
   if (shelfStore) { shelfStore.save([]); broadcast('shelf-items', []); }
-  if (propagate) for (const p of peers.values()) net.sendClear(p.ip).catch(() => {});
+  if (propagate) for (const p of peers.values()) net.sendClear(p.ip, selfIdentity()).catch(() => {});
 }
 
 // Bibliotheque commune : COPIE un fichier vers TOUS les appareils du reseau (aucune
 // selection). Les fichiers RECUS d'un pair ne repassent JAMAIS par ici -> pas de boucle.
-async function shareToAllPeers(paths) {
-  const ips = Array.from(peers.values()).map((p) => p.ip);
-  if (!paths || !paths.length || !ips.length) return { ok: false, error: 'aucun appareil' };
-  const results = await sendToTargets(paths, ips);
+async function shareToAllPeers(paths, ids) {
+  if (!paths || !paths.length) return { ok: false, error: 'aucun fichier' };
+  const all = Array.from(peers.values());
+  // Auto-partage LIMITE aux appareils APPAIRES (meme code) ou deja approuves : on ne
+  // pousse jamais tes fichiers/captures vers un inconnu du reseau. La reception, elle,
+  // reste ouverte selon airnotchAcceptFrom.
+  const ips = all.filter((p) => p.mine || isTrusted(p.id)).map((p) => p.ip);
+  if (!ips.length) {
+    // Distingue "aucun appareil" de "des appareils mais aucun appaire" (feedback UI).
+    return { ok: false, error: all.length ? 'no-paired' : 'aucun appareil' };
+  }
+  const results = await sendToTargets(paths, ips, undefined, ids);
   return { ok: !results.some((r) => !r.ok), results };
 }
 
@@ -1040,7 +1134,21 @@ ipcMain.handle('send-files', async (_e, paths) => {
 });
 
 // Bibliotheque commune : le renderer signale un ajout LOCAL -> on copie a tous.
-ipcMain.handle('share-to-all', async (_e, paths) => shareToAllPeers(paths));
+ipcMain.handle('share-to-all', async (_e, arg) => {
+  // Accepte soit des chemins (string[]), soit des entrees {path, id} (id partage).
+  const entries = Array.isArray(arg) ? arg : [];
+  const paths = entries.map((x) => (typeof x === 'string' ? x : x && x.path)).filter(Boolean);
+  const ids = entries.map((x) => (typeof x === 'string' ? null : x && x.id));
+  return shareToAllPeers(paths, ids);
+});
+
+// Bibliotheque commune : suppression d'un/des fichier(s) propagee aux pairs par id partage.
+function removeFromPeers(ids) {
+  if (!Array.isArray(ids) || !ids.length) return;
+  const identity = selfIdentity();
+  for (const p of peers.values()) net.sendRemove(p.ip, ids, identity).catch(() => {});
+}
+ipcMain.on('remove-shared', (_e, ids) => removeFromPeers(ids));
 
 // Vignette de fichier : uniquement pour les images (decodage nativeImage, sur).
 // NB : on n'utilise PAS app.getFileIcon() -> sur Electron 43 / macOS 26 il fait
@@ -1322,6 +1430,7 @@ ipcMain.on('set-pref', (_e, { key, value } = {}) => {
   // Changement de visibilite / code : on repart d'une table vierge, elle se remplit
   // en <3 s avec le filtrage a jour.
   if (key === 'airnotchVisibility' || key === 'airnotchPairCode') { peers.clear(); pushPeers(); }
+  if (key === 'shortcutOpenNotch') registerShortcuts();
   // Les encoches (renderer) suivent les autres prefs en direct via ce broadcast.
   broadcast('prefs', getPrefs());
 });
@@ -1404,6 +1513,7 @@ ipcMain.on('quit-app', () => app.quit());
 
 app.on('window-all-closed', () => { /* reste actif en tray */ });
 app.on('will-quit', () => {
+  try { globalShortcut.unregisterAll(); } catch (_) {}
   if (dragDaemon) dragDaemon.kill();
   if (mediaHandle) mediaHandle.stop();
   if (hudHandle) hudHandle.kill();

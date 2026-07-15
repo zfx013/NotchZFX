@@ -618,8 +618,9 @@ html, body {
 }
 .shelf-item:active { cursor: grabbing; }
 .shelf-item.selected {
-  background: rgba(10, 132, 255, 0.15);
-  border: 2px solid rgba(10, 132, 255, 0.8);
+  /* Surbrillance = couleur d'accent (reglable). Defaut #0A84FF -> meme bleu qu'avant. */
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border: 2px solid color-mix(in srgb, var(--accent) 80%, transparent);
   padding: 5px 3px;
 }
 /* Fichier recu d'un AUTRE appareil : accent VIOLET (au lieu du bleu) + pastille */
@@ -644,6 +645,25 @@ html, body {
   box-shadow: 0 2px 3px rgba(0, 0, 0, 0.15);
   background: transparent;
 }
+/* Croix de suppression : discrete, apparait au survol de la carte (coin haut-gauche
+   pour ne pas chevaucher la pastille "recu d'un pair" en haut-droite). */
+.card-remove {
+  position: absolute;
+  top: 2px; left: 3px;
+  width: 16px; height: 16px;
+  padding: 0;
+  border: none; border-radius: 50%;
+  background: rgba(18, 18, 26, 0.88);
+  color: #fff;
+  font-size: 13px; line-height: 1;
+  display: grid; place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 4;
+}
+.shelf-item:hover .card-remove { opacity: 1; }
+.card-remove:hover { background: #ff453a; }
 /* Telechargement en cours : vignette attenuee + anneau de progression (facon App Store). */
 .shelf-item.downloading .thumb { opacity: 0.28; }
 .dl-ring {

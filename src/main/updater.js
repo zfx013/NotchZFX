@@ -132,25 +132,74 @@ function install(zipPath) {
     ].join('\n'), { mode: 0o755 });
     spawn('/bin/bash', [script], { detached: true, stdio: 'ignore' }).unref();
   } else {
-    const extract = path.join(tmp, 'x');
-    execFileSync('powershell', ['-NoProfile', '-Command',
-      `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${extract}' -Force`]);
-    if (!fs.existsSync(path.join(extract, 'NotchZFX.exe'))) throw new Error('NotchZFX.exe introuvable dans le zip');
+    // Chaines PowerShell entre quotes simples : une apostrophe dans un chemin (ex.
+    // utilisateur "D'Angelo") casse toute la commande -> on double les apostrophes.
+    const psq = (s) => String(s).replace(/'/g, "''");
     const exe = process.execPath;
     const appDir = path.dirname(exe);
+    const extract = path.join(tmp, 'x');
+    const backupName = path.basename(appDir) + '.old-' + process.pid;
+    const statusFile = path.join(app.getPath('userData'), 'update-status.json');
     const ps = path.join(tmp, 'swap.ps1');
+    // Swap robuste et DETACHE (l'extraction se fait apres la fermeture de l'app -> pas de
+    // gel de l'UI) : rename-aside de l'ancien dossier (avec retry si des DLL sont encore
+    // verrouillees), copie du nouveau via robocopy (retries integres), restauration si
+    // echec, et ecriture d'un STATUT relu au prochain demarrage.
     fs.writeFileSync(ps, [
-      `try { Wait-Process -Id ${process.pid} -Timeout 30 } catch {}`,
-      'Start-Sleep -Milliseconds 800',
-      `Copy-Item -Path '${extract}\\*' -Destination '${appDir}' -Recurse -Force`,
-      'Start-Sleep -Milliseconds 300',
-      `Start-Process -FilePath '${exe}'`,
-      `Remove-Item -LiteralPath '${tmp}' -Recurse -Force -ErrorAction SilentlyContinue`,
+      '$ErrorActionPreference = "Stop"',
+      `$exe = '${psq(exe)}'`,
+      `$appDir = '${psq(appDir)}'`,
+      `$parent = Split-Path -Parent $appDir`,
+      `$backup = Join-Path $parent '${psq(backupName)}'`,
+      `$extract = '${psq(extract)}'`,
+      `$zip = '${psq(zipPath)}'`,
+      `$status = '${psq(statusFile)}'`,
+      'function Write-Status($ok, $msg) {',
+      '  try { $o = @{ ok = $ok; msg = $msg } | ConvertTo-Json -Compress; Set-Content -LiteralPath $status -Value $o -Encoding UTF8 } catch {}',
+      '}',
+      'try {',
+      `  try { Wait-Process -Id ${process.pid} -Timeout 30 } catch {}`,
+      '  Start-Sleep -Milliseconds 800',
+      '  Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force',
+      '  if (-not (Test-Path (Join-Path $extract "NotchZFX.exe"))) { throw "NotchZFX.exe absent du zip" }',
+      '  $moved = $false',
+      '  for ($i = 0; $i -lt 20; $i++) {',
+      '    try { Rename-Item -LiteralPath $appDir -NewName $backup -ErrorAction Stop; $moved = $true; break }',
+      '    catch { Start-Sleep -Milliseconds 500 }',
+      '  }',
+      '  if (-not $moved) { throw "Dossier de l\'app verrouille (fichiers encore ouverts)" }',
+      '  robocopy $extract $appDir /E /NFL /NDL /NJH /NJS /R:3 /W:1 | Out-Null',
+      '  if ($LASTEXITCODE -ge 8) { throw "Copie echouee (robocopy $LASTEXITCODE)" }',
+      '  Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue',
+      '  Write-Status $true "ok"',
+      '  Start-Process -FilePath $exe',
+      '} catch {',
+      '  if (Test-Path $backup) {',
+      '    if (Test-Path $appDir) { Remove-Item -LiteralPath $appDir -Recurse -Force -ErrorAction SilentlyContinue }',
+      '    Rename-Item -LiteralPath $backup -NewName (Split-Path -Leaf $appDir) -ErrorAction SilentlyContinue',
+      '  }',
+      '  Write-Status $false $_.Exception.Message',
+      '  Start-Process -FilePath $exe',
+      '} finally {',
+      `  Remove-Item -LiteralPath '${psq(tmp)}' -Recurse -Force -ErrorAction SilentlyContinue`,
+      '}',
       '',
-    ].join('\n'));
+    ].join('\r\n'));
     spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', ps],
       { detached: true, stdio: 'ignore' }).unref();
   }
 }
 
-module.exports = { hasToken, checkForUpdate, downloadAsset, install };
+// Statut de la derniere tentative de MAJ (Windows) ecrit par le swapper detache ;
+// l'app le lit au demarrage pour signaler un echec silencieux. Renvoie null si absent.
+function takeUpdateStatus() {
+  try {
+    const f = path.join(app.getPath('userData'), 'update-status.json');
+    if (!fs.existsSync(f)) return null;
+    const data = JSON.parse(fs.readFileSync(f, 'utf8'));
+    fs.unlink(f, () => {});
+    return data;
+  } catch (_) { return null; }
+}
+
+module.exports = { hasToken, checkForUpdate, downloadAsset, install, takeUpdateStatus };

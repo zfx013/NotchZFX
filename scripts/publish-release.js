@@ -20,12 +20,18 @@ const assets = [
 ];
 const notes = [
   `## NotchZFX ${TAG}`, '',
-  'Bibliothèque commune de fichiers sur le réseau local — Mac ⇄ PC.', '',
+  'Bibliothèque commune de fichiers sur le réseau local — Mac ⇄ PC. Cette version durcit la sécurité, fiabilise les transferts et l’updater Windows, et ajoute plusieurs commodités.', '',
+  '**Sécurité & vie privée**',
+  '- Le partage automatique ne vise plus que **tes appareils appairés** (même code d’appairage) : tes fichiers/captures ne partent plus vers un inconnu du réseau.',
+  '- Fichiers reçus mis en **quarantaine** (Gatekeeper / SmartScreen), **plafond de taille** par fichier, ordre de vidage distant authentifié.', '',
+  '**Fiabilité**',
+  '- Un transfert interrompu ne laisse plus de fichier « fantôme » figé.',
+  '- Envoi **parallèle** : un appareil lent ne bloque plus les autres.',
+  '- **Updater Windows** réécrit (copie robuste + restauration si échec + rapport d’erreur) : fini les mises à jour qui échouent en silence.', '',
   '**Nouveautés**',
-  '- Bibliothèque commune : dépose un fichier, il est copié automatiquement sur tous les appareils.',
-  '- Anneau de progression (façon App Store) à la réception.',
-  "- Vider partout d'un geste ; liste des appareils en lecture seule.",
-  '- Support Windows (partage de fichiers) : encoche compacte, x64 + ARM64.', '',
+  '- **Suppression d’un fichier propagée** à tous les appareils ; suppression au clavier + croix au survol.',
+  '- **Raccourci global** d’ouverture de l’encoche et **couleur d’accent** personnalisable.',
+  '- Retour visuel « Partagé ✓ » au dépôt, moins de scintillement dans l’étagère.', '',
   'Binaires non signés — voir le README pour l’ouverture (Gatekeeper / SmartScreen).',
 ].join('\n');
 const H = {Authorization: `Bearer ${TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'};

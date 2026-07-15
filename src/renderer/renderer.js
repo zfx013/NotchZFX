@@ -159,7 +159,13 @@ function notifDims() {
   return { w: closedDims.w + 120, h: Math.max(closedDims.h + 22, 50), tr: closedDims.tr, br: 24 };
 }
 function notifPeek(on) {
-  if (state === 'open' || document.documentElement.classList.contains('hud')) return;
+  if (state === 'open' || document.documentElement.classList.contains('hud')) {
+    // Ouvert (ou HUD affiche) : pas de peek de forme, mais on doit quand meme pouvoir
+    // SORTIR de l'etat notif -> sinon `notifying` reste bloque a true et applyClosedShape
+    // ne re-adapte plus jamais la forme fermee (live activity / HUD figes).
+    if (!on) notifying = false;
+    return;
+  }
   notifying = on;
   // Aller : ressort nettement sous-amorti (zeta 0.42) + periode plus longue (0.5)
   // -> la pilule DEPASSE bien puis rebondit visiblement. Retour plus doux.
@@ -203,7 +209,7 @@ function applyState(s, tab) {
 }
 
 window.notch.onNotchState((s) => applyState(s.state, s.tab));
-window.notch.onNotchNotify((d) => { const on = !!(d && d.on); notifPeek(on); if (on) pulseNotch(); });
+window.notch.onNotchNotify((d) => { const on = !!(d && d.on); notifPeek(on); if (on && state !== 'open') pulseNotch(); });
 window.notch.onSwitchTab((t) => switchTab(t));
 
 window.notch.onGeometry((g) => {
@@ -217,9 +223,16 @@ window.notch.onGeometry((g) => {
   if (state === 'closed') spring.snap(closedDims);
 });
 
+// Couleur d'accent : "custom" -> couleur choisie, sinon l'accent systeme (bleu). Pilote
+// la surbrillance de selection (var(--accent)).
+function applyAccent() {
+  const c = (prefs.accentMode === 'custom' && prefs.accentColor) ? prefs.accentColor : '#0A84FF';
+  document.documentElement.style.setProperty('--accent', c);
+}
 window.notch.onPrefs((p) => {
   prefs = { ...prefs, ...p };
   applyAnimClass();
+  applyAccent();
   // Re-applique l'etat courant pour refleter le nouveau mode (anime / fige).
   applyState(state);
   if (typeof renderCalendar === 'function') renderCalendar();
@@ -530,6 +543,7 @@ const cardByPath = new Map(); // path -> element (pour la selection au lasso)
 // Anneau de progression circulaire (facon App Store) : piste + arc qui se remplit.
 const RING_R = 13;
 const RING_C = 2 * Math.PI * RING_R;
+const thumbCache = new Map(); // path -> data URL (evite de re-fetch les vignettes a chaque rendu)
 function makeDlRing(id, pct) {
   const wrap = document.createElement('div');
   wrap.className = 'dl-ring';
@@ -572,14 +586,19 @@ function renderShelf() {
     ph.textContent = (it.name.split('.').pop() || '?').slice(0, 4);
     card.appendChild(ph);
     if (!dl) {
-      window.notch.getThumb(it.path).then((url) => {
+      const setThumb = (url) => {
         if (!url || !card.contains(ph)) return;
         const img = document.createElement('img');
         img.className = 'thumb';
         img.src = url;
         img.draggable = false;
         card.replaceChild(img, ph);
-      });
+      };
+      // Cache des vignettes : evite un aller-retour IPC + un flicker gris->image sur
+      // CHAQUE re-rendu (un simple clic de selection re-rendait toute l'etagere).
+      const cached = thumbCache.get(it.path);
+      if (cached) setThumb(cached);
+      else window.notch.getThumb(it.path).then((url) => { if (url) { thumbCache.set(it.path, url); setThumb(url); } });
     } else {
       // Telechargement en cours : anneau de progression (facon App Store) par-dessus.
       card.appendChild(makeDlRing(it.id, it.pct || 0));
@@ -591,7 +610,13 @@ function renderShelf() {
     name.title = it.name;
     card.appendChild(name);
 
-    if (dl) { rowEl.appendChild(card); return; } // pas d'interactions sur un placeholder
+    if (dl) {
+      // Placeholder en telechargement : pas d'interactions, mais on avale le clic pour
+      // ne pas vider la selection en cours (le clic remonterait sinon au panel).
+      card.addEventListener('click', (e) => e.stopPropagation());
+      rowEl.appendChild(card);
+      return;
+    }
 
     // Selection : clic simple / Cmd+clic toggle / Shift+clic plage (ShelfSelectionModel)
     card.addEventListener('click', (e) => {
@@ -636,12 +661,21 @@ function renderShelf() {
       if (prefs.removeOnDragOut) setTimeout(() => removeItems(paths), 60);
     });
 
+    // Croix de suppression, visible au survol de la carte (retire + propage aux pairs).
+    const rmBtn = document.createElement('button');
+    rmBtn.className = 'card-remove';
+    rmBtn.textContent = '×';
+    rmBtn.title = 'Retirer';
+    rmBtn.addEventListener('click', (e) => { e.stopPropagation(); removeItems([it.path]); });
+    card.appendChild(rmBtn);
+
     rowEl.appendChild(card);
   });
 }
 
 function effectiveSelection(clickedPath) {
-  return selected.has(clickedPath) && selected.size > 1 ? [...selected] : [clickedPath];
+  const base = selected.has(clickedPath) && selected.size > 1 ? [...selected] : [clickedPath];
+  return base.filter(Boolean); // jamais de path null (placeholder en telechargement)
 }
 
 const panel = $('shelf-panel');
@@ -769,49 +803,101 @@ function persist() {
   );
 }
 
+// Id local unique : sert d'id PARTAGE (les pairs referencent le meme item) -> permet de
+// propager la suppression d'un fichier unitaire.
+function genId() {
+  return 'l' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
 function addItems(paths, dir, from) {
   const known = new Set(items.map((i) => i.path));
   const now = Date.now();
+  const added = [];
   paths.filter((p) => !known.has(p)).forEach((p) => {
-    items.push({ path: p, name: p.split(/[\\/]/).pop(), dir, from: from || null, receivedAt: from ? now : undefined });
+    const it = { path: p, name: p.split(/[\\/]/).pop(), dir, from: from || null, receivedAt: from ? now : undefined, id: genId() };
+    items.push(it);
+    added.push(it);
   });
   persist();
   renderShelf();
+  return added;
 }
 
 // Ajout LOCAL a la bibliotheque commune : on garde le fichier ici ET on le copie
 // automatiquement vers tous les appareils du reseau (aucune selection).
-function addLocal(paths) {
+async function addLocal(paths) {
   if (!paths || !paths.length) return;
-  addItems(paths, 'local');
-  window.notch.shareToAll(paths);
+  const added = addItems(paths, 'local');
+  if (!added.length) return; // deja dans la bibliotheque
+  // On envoie {path, id} : les pairs stockent l'item sous le MEME id (suppression propageable).
+  const entries = added.map((it) => ({ path: it.path, id: it.id }));
+  const res = await window.notch.shareToAll(entries);
+  if (!res) return;
+  if (res.ok) chipFlash('Partagé ✓', false);            // "Partagé ✓"
+  else if (res.error === 'no-paired') chipFlash('Aucun appareil appairé', true);
+  else if (res.error === 'aucun appareil') { /* seul sur le reseau : on reste silencieux */ }
+  else chipFlash('Partage échoué', true);
 }
 
 // Effet visuel discret (sans texte) quand un fichier arrive d'un autre appareil :
 // une pulsation violette qui suit la forme de l'encoche.
+let pulseTimer = null;
 function pulseNotch() {
   const n = document.getElementById('notch');
   if (!n) return;
+  clearTimeout(pulseTimer); // receptions rapprochees : on relance proprement
   n.classList.remove('recv-pulse');
   void n.offsetWidth; // force un reflow -> relance l'animation meme si rapprochee
   n.classList.add('recv-pulse');
-  setTimeout(() => n.classList.remove('recv-pulse'), 950);
+  // 1300 ms = duree reelle de @keyframes recvFlash (retirer avant faisait retomber le
+  // contour violet a sec ~73% -> pop visible).
+  pulseTimer = setTimeout(() => n.classList.remove('recv-pulse'), 1300);
 }
 
 function removeItems(paths) {
   const drop = new Set(paths);
   if (!drop.size) return;
+  // Ids partages des items retires -> on propage la suppression aux pairs (cohérence
+  // de la bibliotheque commune : supprimer un fichier le retire partout).
+  const ids = items.filter((i) => drop.has(i.path) && i.id).map((i) => i.id);
   items = items.filter((i) => !drop.has(i.path));
   paths.forEach((p) => selected.delete(p));
   persist();
   renderShelf();
+  if (ids.length) window.notch.removeShared(ids);
 }
+
+// Clavier (encoche ouverte) : Suppr/Retour arriere retire la selection, Echap la vide.
+document.addEventListener('keydown', (e) => {
+  if (state !== 'open') return;
+  if (e.key === 'Escape') { if (selected.size) { selected.clear(); renderShelf(); } return; }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    const paths = [...selected].filter(Boolean);
+    if (paths.length) { e.preventDefault(); removeItems(paths); }
+  }
+});
+
+// Suppression RECUE d'un pair (par id partage) : on retire localement sans re-propager.
+window.notch.onShelfRemove((ids) => {
+  if (!Array.isArray(ids) || !ids.length) return;
+  const rm = new Set(ids);
+  const before = items.length;
+  items = items.filter((i) => !(i.id && rm.has(i.id)));
+  if (items.length === before) return;
+  const present = new Set(items.map((i) => i.path));
+  [...selected].forEach((p) => { if (!present.has(p)) selected.delete(p); });
+  persist();
+  renderShelf();
+});
 
 window.notch.onShelfItems((saved) => {
   // On preserve les placeholders en cours de telechargement (absents du disque).
   const dl = items.filter((i) => i.downloading);
   const list = saved || [];
   items = list.concat(dl.filter((d) => !list.some((s) => s.id && s.id === d.id)));
+  // Reconcilie la selection : un fichier retire par un autre appareil ne doit pas rester
+  // dans `selected` (fantome transmis au main via effectiveSelection/select-all).
+  const present = new Set(items.map((i) => i.path));
+  [...selected].forEach((p) => { if (!present.has(p)) selected.delete(p); });
   renderShelf();
 });
 
@@ -823,13 +909,9 @@ window.notch.onMenuAction(({ action, paths }) => {
   else if (action === 'send-peer') sendToPeer(list);
   else if (action === 'airdrop') shareViaAirdrop(list);
   else if (action === 'remove') {
-    const rm = new Set(list);
-    items = items.filter((i) => !rm.has(i.path));
-    list.forEach((p) => selected.delete(p));
-    persist();
-    renderShelf();
+    removeItems(list); // retire + propage aux pairs
   } else if (action === 'select-all') {
-    selected = new Set(items.map((i) => i.path));
+    selected = new Set(items.filter((i) => i.path && !i.downloading).map((i) => i.path));
     renderShelf();
   } else if (action === 'clear-shelf') clearShelf();
 });
@@ -1001,8 +1083,18 @@ window.notch.onFileIncoming((d) => {
 // Progression : on met a jour l'anneau du placeholder (sans re-rendre toute l'etagere).
 window.notch.onFileProgress((d) => {
   if (!d || !d.id) return;
-  const it = items.find((i) => i.id === d.id && i.downloading);
-  if (!it) return;
+  const idx = items.findIndex((i) => i.id === d.id && i.downloading);
+  if (idx < 0) return;
+  if (d.failed) {
+    // Transfert interrompu (pair deconnecte, erreur reseau) : on RETIRE le placeholder
+    // coince (sinon anneau fige a vie, carte inerte, seul "Vider" le supprimait).
+    const nm = items[idx].name;
+    items.splice(idx, 1);
+    renderShelf();
+    chipFlash('Transfert interrompu' + (nm ? ' : ' + middleTruncate(nm, 16) : ''), true);
+    return;
+  }
+  const it = items[idx];
   if (d.size) it.pct = Math.min(1, d.received / d.size);
   updateDlRing(d.id, it.pct);
 });
@@ -1018,7 +1110,8 @@ window.notch.onFileReceived((d) => {
       return;
     }
   }
-  addItems([d.path], 'in', d.from);
+  const added = addItems([d.path], 'in', d.from);
+  if (added[0] && d.id) { added[0].id = d.id; persist(); } // conserve l'id partage
 });
 
 window.notch.onPeers((list) => { peersList = Array.isArray(list) ? list : []; renderPeers(); });

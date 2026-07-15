@@ -471,7 +471,7 @@
               type: 'dropdown',
               key: 'airnotchAcceptFrom',
               label: 'Accepter les fichiers de',
-              desc: 'Un appareil inconnu demande confirmation avant que tu recoives son fichier.',
+              desc: 'Qui peut t\'ENVOYER des fichiers. « Mes appareils » demande confirmation pour un inconnu. Le partage AUTOMATIQUE, lui, ne vise que tes appareils appaires (meme code).',
               options: [
                 ['paired', 'Mes appareils (meme code)'],
                 ['everyone', 'Tout le monde'],
@@ -483,8 +483,7 @@
               key: 'airnotchPairCode',
               label: "Code d'appairage",
               placeholder: 'ex. maison-2401',
-              desc: 'Le meme code sur tes machines les relie. Requis en mode Prive.',
-              disabled: (ctx) => ctx.getPref('airnotchVisibility') !== 'private',
+              desc: 'Mets le MEME code sur tes machines pour les appairer : tes fichiers et captures sont alors copies automatiquement vers elles (et elles seules). Aussi requis en mode Prive.',
             },
             {
               type: 'text',
@@ -495,13 +494,13 @@
           ],
         },
         {
-          title: 'Envoi par defaut (glisser-deposer direct)',
+          title: 'Partage manuel (menu « Partager sur le reseau »)',
           rows: [
             {
               type: 'segmented',
               key: 'airnotchDefaultSend',
               label: 'Cibles',
-              desc: 'Ce qui recoit un fichier lache directement sur l\'encoche.',
+              desc: 'Cibles du partage declenche a la main via le menu clic droit. Le glisser-deposer, lui, copie automatiquement vers tous tes appareils appaires.',
               options: [['all', 'Tous'], ['one', 'Un seul']],
             },
             {

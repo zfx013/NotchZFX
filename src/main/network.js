@@ -8,12 +8,17 @@ const os = require('os');
 
 const FILE_PORT = 8787;       // reception des fichiers
 const DISCOVERY_PORT = 8788;  // decouverte automatique du pair
+const MAX_FILE_BYTES = 8 * 1024 * 1024 * 1024; // plafond par fichier (~8 Go) -> anti remplissage disque
+
+// Noms de peripheriques reserves Windows (fs.createWriteStream y echoue).
+const WIN_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
 
 // Assainit un nom de fichier pour qu'il soit valide sur macOS ET Windows.
 function sanitizeName(name) {
-  const clean = name
+  let clean = name
     .replace(/[<>:"\/\\|?*\u0000-\u001f]/g, '_')
     .replace(/[. ]+$/, '');
+  if (WIN_RESERVED.test(clean)) clean = '_' + clean; // CON.txt -> _CON.txt
   return clean || `fichier-${Date.now()}`;
 }
 
@@ -30,8 +35,35 @@ function startServer(inboxDir, handlers, authorize) {
   app.get('/ping', (_req, res) => res.json({ app: 'notchdrop', host: os.hostname() }));
 
   // Bibliotheque commune : un pair demande de TOUT vider -> on relaie a l'app locale.
-  app.post('/clear', (req, res) => {
+  // Operation DESTRUCTIVE : on la soumet au meme controle d'acces que /drop (via
+  // authorizeClear), sinon n'importe quel appareil du LAN pouvait effacer la bibliotheque.
+  app.post('/clear', async (req, res) => {
+    const meta = {
+      deviceId: req.get('x-device-id') || '',
+      group: req.get('x-group') || '',
+    };
+    try { meta.name = decodeURIComponent(req.get('x-device-name') || ''); } catch (_) { meta.name = ''; }
+    let allowed = true;
+    try { allowed = h.authorizeClear ? await h.authorizeClear(meta) : true; } catch (_) { allowed = false; }
+    if (!allowed) { res.status(403).json({ ok: false }); req.resume(); return; }
     try { if (h.onClear) h.onClear(); } catch (_) {}
+    res.json({ ok: true });
+    req.resume();
+  });
+
+  // Bibliotheque commune : un pair a supprime UN (ou des) fichier(s) -> on relaie la
+  // suppression par id partage. Meme controle d'acces que /clear.
+  app.post('/remove', async (req, res) => {
+    const meta = {
+      deviceId: req.get('x-device-id') || '',
+      group: req.get('x-group') || '',
+    };
+    try { meta.name = decodeURIComponent(req.get('x-device-name') || ''); } catch (_) { meta.name = ''; }
+    let allowed = true;
+    try { allowed = h.authorizeClear ? await h.authorizeClear(meta) : true; } catch (_) { allowed = false; }
+    if (!allowed) { res.status(403).json({ ok: false }); req.resume(); return; }
+    const ids = (req.get('x-item-ids') || '').split(',').map((s) => s.trim()).filter(Boolean);
+    try { if (h.onRemove) h.onRemove(ids); } catch (_) {}
     res.json({ ok: true });
     req.resume();
   });
@@ -59,6 +91,12 @@ function startServer(inboxDir, handlers, authorize) {
       req.resume(); // vide le corps eventuel
       return;
     }
+    // Plafond de taille : rejette avant de lire le corps si content-length depasse.
+    if (size && size > MAX_FILE_BYTES) {
+      res.status(413).json({ ok: false, error: 'Fichier trop volumineux' });
+      req.resume();
+      return;
+    }
 
     let dest;
     try {
@@ -81,6 +119,10 @@ function startServer(inboxDir, handlers, authorize) {
       if (intent !== 'airdrop' && h.onProgress) { try { h.onProgress({ fileId, received: 0, size, failed: true }); } catch (_) {} }
       if (code) res.status(code).json({ ok: false, error: String(err) });
     };
+    // Garde-fou anti remplissage disque : coupe si le corps depasse le plafond, meme
+    // sans content-length annonce (transfert chunked).
+    let total = 0;
+    req.on('data', (chunk) => { total += chunk.length; if (total > MAX_FILE_BYTES) abort(413, new Error('Fichier trop volumineux')); });
     // Progression : on compte les octets recus (throttle ~120 ms) pour l'anneau.
     let received = 0; let lastEmit = 0;
     if (intent !== 'airdrop' && h.onProgress && size > 0) {
@@ -157,9 +199,35 @@ function sendFile(peerIp, filePath, opts = {}) {
 }
 
 // Bibliotheque commune : demande a un pair de TOUT vider (POST /clear, sans corps).
-function sendClear(peerIp) {
+// On joint l'identite (comme sendFile) pour que le destinataire puisse autoriser en
+// mode paired (sinon un vidage legitime serait refuse).
+function sendClear(peerIp, identity) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: peerIp, port: FILE_PORT, path: '/clear', method: 'POST', timeout: 5000 }, (res) => {
+    const headers = identity ? {
+      'x-device-id': identity.id || '',
+      'x-device-name': encodeURIComponent(identity.name || ''),
+      'x-group': identity.group || '',
+    } : {};
+    const req = http.request({ host: peerIp, port: FILE_PORT, path: '/clear', method: 'POST', headers, timeout: 5000 }, (res) => {
+      res.resume();
+      res.statusCode === 200 ? resolve(true) : reject(new Error(`HTTP ${res.statusCode}`));
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+// Bibliotheque commune : demande a un pair de supprimer des items par id partage.
+function sendRemove(peerIp, ids, identity) {
+  return new Promise((resolve, reject) => {
+    const headers = { 'x-item-ids': (ids || []).join(',') };
+    if (identity) {
+      headers['x-device-id'] = identity.id || '';
+      headers['x-device-name'] = encodeURIComponent(identity.name || '');
+      headers['x-group'] = identity.group || '';
+    }
+    const req = http.request({ host: peerIp, port: FILE_PORT, path: '/remove', method: 'POST', headers, timeout: 5000 }, (res) => {
       res.resume();
       res.statusCode === 200 ? resolve(true) : reject(new Error(`HTTP ${res.statusCode}`));
     });
@@ -243,4 +311,4 @@ function uniquePath(p) {
   return candidate;
 }
 
-module.exports = { startServer, sendFile, sendClear, startDiscovery, localIPv4, sanitizeName, uniquePath, FILE_PORT };
+module.exports = { startServer, sendFile, sendClear, sendRemove, startDiscovery, localIPv4, sanitizeName, uniquePath, FILE_PORT };
