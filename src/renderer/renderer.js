@@ -661,14 +661,6 @@ function renderShelf() {
       if (prefs.removeOnDragOut) setTimeout(() => removeItems(paths), 60);
     });
 
-    // Croix de suppression, visible au survol de la carte (retire + propage aux pairs).
-    const rmBtn = document.createElement('button');
-    rmBtn.className = 'card-remove';
-    rmBtn.textContent = '×';
-    rmBtn.title = 'Retirer';
-    rmBtn.addEventListener('click', (e) => { e.stopPropagation(); removeItems([it.path]); });
-    card.appendChild(rmBtn);
-
     rowEl.appendChild(card);
   });
 }
@@ -786,6 +778,22 @@ $('clear-shelf').addEventListener('click', (e) => {
   e.stopPropagation();
   clearShelf();
 });
+// La croix est aussi une CIBLE DE DEPOT : glisser un/des fichier(s) dessus les retire de
+// la barre (et les propage aux pairs) au lieu de tout vider. Fonctionne avec le drag
+// natif d'une carte (l'OS livre le fichier a la fenetre au lacher).
+const clearBtn = $('clear-shelf');
+clearBtn.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); clearBtn.classList.add('drop-del'); });
+clearBtn.addEventListener('dragleave', (e) => { e.stopPropagation(); clearBtn.classList.remove('drop-del'); });
+clearBtn.addEventListener('drop', (e) => {
+  e.preventDefault();
+  e.stopPropagation(); // ne PAS laisser le panel/document re-ajouter les fichiers
+  clearBtn.classList.remove('drop-del');
+  endDrag();
+  const dropped = new Set(filesFromEvent(e));
+  // On ne retire que ce qui est reellement dans la barre (un fichier externe est ignore).
+  const toRemove = items.filter((i) => i.path && dropped.has(i.path)).map((i) => i.path);
+  if (toRemove.length) removeItems(toRemove);
+});
 
 function clearShelf() {
   items = [];
@@ -866,13 +874,19 @@ function removeItems(paths) {
   if (ids.length) window.notch.removeShared(ids);
 }
 
-// Clavier (encoche ouverte) : Suppr/Retour arriere retire la selection, Echap la vide.
+// Clavier (encoche ouverte) : Suppr/Retour arriere retire la selection, Echap la vide,
+// Espace ouvre la previsualisation Quick Look (macOS) du/des fichier(s) selectionne(s).
 document.addEventListener('keydown', (e) => {
   if (state !== 'open') return;
   if (e.key === 'Escape') { if (selected.size) { selected.clear(); renderShelf(); } return; }
   if (e.key === 'Delete' || e.key === 'Backspace') {
     const paths = [...selected].filter(Boolean);
     if (paths.length) { e.preventDefault(); removeItems(paths); }
+    return;
+  }
+  if (e.key === ' ' || e.code === 'Space') {
+    const paths = [...selected].filter(Boolean);
+    if (paths.length) { e.preventDefault(); window.notch.quickLook(paths); }
   }
 });
 

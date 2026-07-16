@@ -12,7 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const https = require('https');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const { execFile, spawn } = require('child_process');
 const net = require('./network');
 const updater = require('./updater');
 const { baseGeometry, probeMacNotch } = require('./geometry');
@@ -1509,6 +1509,19 @@ ipcMain.on('start-drag', (e, filePaths) => {
 ipcMain.on('dbg', (_e, m) => console.log('[renderer]', m));
 ipcMain.on('open-file', (_e, p) => shell.openPath(p));
 ipcMain.on('reveal-file', (_e, p) => shell.showItemInFolder(p));
+// Previsualisation Quick Look (macOS) : comme la barre d'espace dans le Finder.
+let qlProc = null;
+ipcMain.on('quicklook', (_e, paths) => {
+  if (process.platform !== 'darwin') return;
+  const list = (Array.isArray(paths) ? paths : [paths]).filter((p) => typeof p === 'string' && p);
+  if (!list.length) return;
+  try { if (qlProc) qlProc.kill(); } catch (_) {} // remplace l'apercu precedent
+  try {
+    qlProc = spawn('/usr/bin/qlmanage', ['-p', ...list], { stdio: 'ignore' });
+    qlProc.on('error', () => { qlProc = null; });
+    qlProc.on('exit', () => { qlProc = null; });
+  } catch (_) { qlProc = null; }
+});
 ipcMain.on('quit-app', () => app.quit());
 
 app.on('window-all-closed', () => { /* reste actif en tray */ });

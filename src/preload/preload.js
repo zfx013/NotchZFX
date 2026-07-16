@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('notch', {
   startDrag: (p) => ipcRenderer.send('start-drag', p),
   openFile: (p) => ipcRenderer.send('open-file', p),
   revealFile: (p) => ipcRenderer.send('reveal-file', p),
+  quickLook: (paths) => ipcRenderer.send('quicklook', paths),
 
   // Shelf : persistance
   onShelfItems: (cb) => ipcRenderer.on('shelf-items', (_e, items) => cb(items)),
