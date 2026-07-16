@@ -1551,18 +1551,42 @@ ipcMain.on('notch-focus', (e, on) => {
   try { n.win.setFocusable(!!on); if (on) n.win.focus(); } catch (_) {}
 });
 
-// Previsualisation Quick Look (macOS) : comme la barre d'espace dans le Finder.
+// Previsualisation Quick Look (macOS) facon Finder : Espace ouvre, Espace/Echap ferme,
+// fleches pour naviguer entre les documents. `qlmanage -p` s'appuie sur le vrai panneau
+// Quick Look (QLPreviewPanel) : Espace/Echap/fleches y marchent NATIVEMENT, a condition
+// qu'il ait le focus. On libere donc le focus de l'encoche a l'ouverture, et on le lui
+// rend quand l'apercu se ferme (Espace rouvre alors).
 let qlProc = null;
-ipcMain.on('quicklook', (_e, paths) => {
+let qlNotch = null;
+ipcMain.on('quicklook', (e, paths) => {
   if (process.platform !== 'darwin') return;
+  // Un apercu est deja ouvert -> Espace le referme (toggle, filet de securite si le focus
+  // n'a pas ete cede au panneau).
+  if (qlProc) { try { qlProc.kill(); } catch (_) {} return; }
   const list = (Array.isArray(paths) ? paths : [paths]).filter((p) => typeof p === 'string' && p);
   if (!list.length) return;
-  try { if (qlProc) qlProc.kill(); } catch (_) {} // remplace l'apercu precedent
+  qlNotch = notches.find((x) => alive(x) && x.win.webContents === e.sender) || null;
+  // Cede le focus -> laisse le helper Quick Look devenir l'app active (il s'active
+  // lui-meme ; comme il est lance par l'app active, macOS autorise le transfert).
+  if (qlNotch) { try { qlNotch.win.setFocusable(false); } catch (_) {} }
   try {
-    qlProc = spawn('/usr/bin/qlmanage', ['-p', ...list], { stdio: 'ignore' });
-    qlProc.on('error', () => { qlProc = null; });
-    qlProc.on('exit', () => { qlProc = null; });
-  } catch (_) { qlProc = null; }
+    // Helper natif QLPreviewPanel : Espace/Echap/fleches y marchent (contrairement a
+    // `qlmanage -p` qui ne prend pas le focus). Repli sur qlmanage si le helper manque.
+    const qlBin = path.join(__dirname, 'QuickLook.app', 'Contents', 'MacOS', 'QuickLook');
+    qlProc = fs.existsSync(qlBin)
+      ? spawn(qlBin, list, { stdio: 'ignore' })
+      : spawn('/usr/bin/qlmanage', ['-p', ...list], { stdio: 'ignore' });
+    const onDone = () => {
+      qlProc = null;
+      // Rend le focus a l'encoche si elle est encore ouverte -> Espace rouvre l'apercu.
+      if (qlNotch && alive(qlNotch) && qlNotch.state === 'open') {
+        try { qlNotch.win.setFocusable(true); qlNotch.win.focus(); } catch (_) {}
+      }
+      qlNotch = null;
+    };
+    qlProc.on('error', onDone);
+    qlProc.on('exit', onDone);
+  } catch (_) { qlProc = null; qlNotch = null; }
 });
 ipcMain.on('quit-app', () => app.quit());
 

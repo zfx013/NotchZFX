@@ -899,8 +899,20 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.key === ' ' || e.code === 'Space') {
-    const paths = [...selected].filter(Boolean);
-    if (paths.length) { e.preventDefault(); window.notch.quickLook(paths); }
+    const sel = [...selected].filter(Boolean);
+    if (!sel.length) return;
+    e.preventDefault();
+    let qlPaths;
+    if (sel.length > 1) {
+      qlPaths = sel; // plusieurs selectionnes -> on navigue entre eux aux fleches
+    } else {
+      // un seul selectionne -> previsualise TOUTE la bibliotheque en commencant par lui
+      // (fleches = naviguer dans tous les fichiers, comme le Finder).
+      const all = items.filter((i) => i.path).map((i) => i.path);
+      const idx = all.indexOf(sel[0]);
+      qlPaths = idx >= 0 ? all.slice(idx).concat(all.slice(0, idx)) : sel;
+    }
+    window.notch.quickLook(qlPaths);
   }
 });
 

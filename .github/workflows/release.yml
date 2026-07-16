@@ -1,10 +1,15 @@
 name: Build & Release
 
-# Se déclenche quand on pousse un tag "vX.Y.Z" (ou manuellement).
+# DÉSACTIVÉ (déclenchement manuel uniquement). Ce workflow est incompatible avec
+# l'updater intégré actuel : (1) il ne peut pas embarquer le token lecture seule
+# `src/main/updater-token.json` (gitignored, absent du checkout) -> apps sans updater ;
+# (2) il nomme le zip Mac `…-mac-arm64.zip` alors que l'updater attend `…-mac.zip` ;
+# (3) il ne build pas Windows arm64 et signe avec une identité locale absente du runner.
+# -> Les releases sont publiées A LA MAIN via `scripts/publish-release.js` (binaires
+# buildés localement AVEC le token + noms attendus par l'updater).
+# Pour réactiver une vraie CI : ajouter un secret repo NOTCHZFX_UPDATE_TOKEN écrit dans
+# updater-token.json avant le build, corriger les noms d'assets, ajouter --x64 --arm64.
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 permissions:

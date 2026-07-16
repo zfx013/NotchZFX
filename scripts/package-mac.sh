@@ -60,7 +60,7 @@ echo "==> Icone"
 # Compile les helpers natifs Swift (.app non versionnes -> a construire ici pour que
 # le bundle packagé les embarque, y compris en CI sur un clone frais).
 echo "==> Compilation des helpers natifs (Swift .app)"
-for b in build-hud.sh build-catcher.sh build-calendar.sh build-mediakeys.sh; do
+for b in build-hud.sh build-catcher.sh build-calendar.sh build-mediakeys.sh build-quicklook.sh; do
   [ -f "$SRC/src/main/$b" ] && bash "$SRC/src/main/$b" >/dev/null 2>&1 && echo "  ok $b" || echo "  (echec/absent $b)"
 done
 
