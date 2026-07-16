@@ -502,6 +502,9 @@ function handleCaughtDrop(paths) {
 function closeNotch(n) {
   if (!alive(n) || n.state === 'closed') return;
   n.state = 'closed';
+  // Rend l'encoche a nouveau non-focusable a la fermeture -> le focus clavier revient
+  // a l'app precedente (il n'est pris que pendant une selection, cf. ipc 'notch-focus').
+  if (process.platform === 'darwin') { try { n.win.setFocusable(false); } catch (_) {} }
   n.win.webContents.send('notch-state', { state: 'closed' });
   clearTimeout(n.shrinkTimer);
   if (n.fixed) {
@@ -1157,6 +1160,32 @@ ipcMain.on('remove-shared', (_e, ids) => removeFromPeers(ids));
 const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic', '.tiff'];
 const thumbCache = new Map();
 const THUMB_CACHE_MAX = 200;
+
+// Vignette Quick Look (macOS) facon Finder : marche pour PDF, docs, .app, etc.
+// `qlmanage -t` ecrit un PNG dans un dossier temporaire, qu'on relit puis supprime.
+function qlThumb(filePath) {
+  return new Promise((resolve) => {
+    if (process.platform !== 'darwin') return resolve(null);
+    let outDir;
+    try { outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nzfx-ql-')); } catch (_) { return resolve(null); }
+    const done = (url) => { try { fs.rm(outDir, { recursive: true, force: true }, () => {}); } catch (_) {} resolve(url); };
+    execFile('/usr/bin/qlmanage', ['-t', '-s', '256', '-o', outDir, filePath], { timeout: 8000 }, () => {
+      try {
+        let png = path.join(outDir, path.basename(filePath) + '.png');
+        if (!fs.existsSync(png)) {
+          const pngs = fs.readdirSync(outDir).filter((f) => f.toLowerCase().endsWith('.png'));
+          png = pngs.length ? path.join(outDir, pngs[0]) : null;
+        }
+        if (png && fs.existsSync(png)) {
+          const img = nativeImage.createFromPath(png);
+          if (!img.isEmpty()) return done(img.toDataURL());
+        }
+      } catch (_) {}
+      done(null);
+    });
+  });
+}
+
 ipcMain.handle('get-thumb', async (_e, filePath) => {
   if (thumbCache.has(filePath)) return thumbCache.get(filePath);
   let dataUrl = null;
@@ -1174,6 +1203,8 @@ ipcMain.handle('get-thumb', async (_e, filePath) => {
         }).toDataURL();
       }
     }
+    // Non-image (ou image illisible par nativeImage) : vignette Quick Look facon Finder.
+    if (!dataUrl) dataUrl = await qlThumb(filePath);
   } catch (_) { /* le renderer affiche le cartouche d'extension */ }
   if (dataUrl) {
     if (thumbCache.size >= THUMB_CACHE_MAX) {
@@ -1509,6 +1540,17 @@ ipcMain.on('start-drag', (e, filePaths) => {
 ipcMain.on('dbg', (_e, m) => console.log('[renderer]', m));
 ipcMain.on('open-file', (_e, p) => shell.openPath(p));
 ipcMain.on('reveal-file', (_e, p) => shell.showItemInFolder(p));
+// Focus clavier a la demande (macOS) : l'encoche est normalement non-focusable (ne vole
+// pas le focus au survol). Quand le renderer signale une SELECTION active, on la rend
+// focusable + on lui donne le focus -> la barre d'espace (Quick Look) et Suppr marchent.
+// Relache a la deselection / fermeture (closeNotch).
+ipcMain.on('notch-focus', (e, on) => {
+  if (process.platform !== 'darwin') return;
+  const n = notches.find((x) => alive(x) && x.win.webContents === e.sender);
+  if (!n) return;
+  try { n.win.setFocusable(!!on); if (on) n.win.focus(); } catch (_) {}
+});
+
 // Previsualisation Quick Look (macOS) : comme la barre d'espace dans le Finder.
 let qlProc = null;
 ipcMain.on('quicklook', (_e, paths) => {

@@ -177,6 +177,7 @@ function notifPeek(on) {
 function applyState(s, tab) {
   state = s;
   document.documentElement.classList.toggle('open', s === 'open');
+  updateKeyFocus(); // fermeture -> relache le focus clavier
   clearTimeout(hoverTimer);
   if (s === 'open') {
     clearTimeout(hideTimer);
@@ -544,6 +545,18 @@ const cardByPath = new Map(); // path -> element (pour la selection au lasso)
 const RING_R = 13;
 const RING_C = 2 * Math.PI * RING_R;
 const thumbCache = new Map(); // path -> data URL (evite de re-fetch les vignettes a chaque rendu)
+
+// Focus clavier : on ne le demande au main QUE lorsqu'un fichier est selectionne (clic
+// delibere) et l'encoche ouverte -> Espace (Quick Look) et Suppr marchent, sans voler le
+// focus au simple survol.
+let keyFocusOn = false;
+function updateKeyFocus() {
+  const want = state === 'open' && [...selected].some(Boolean);
+  if (want === keyFocusOn) return;
+  keyFocusOn = want;
+  window.notch.notchFocus(want);
+}
+
 function makeDlRing(id, pct) {
   const wrap = document.createElement('div');
   wrap.className = 'dl-ring';
@@ -663,6 +676,7 @@ function renderShelf() {
 
     rowEl.appendChild(card);
   });
+  updateKeyFocus(); // la selection a pu changer -> (re)prend/relache le focus clavier
 }
 
 function effectiveSelection(clickedPath) {
