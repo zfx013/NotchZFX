@@ -671,7 +671,7 @@ function renderShelf() {
       e.preventDefault();
       const paths = effectiveSelection(it.path);
       window.notch.startDrag(paths);
-      if (prefs.removeOnDragOut) setTimeout(() => removeItems(paths), 60);
+      if (prefs.removeOnDragOut) setTimeout(() => removeItems(paths, false), 60); // retrait LOCAL (extraction)
     });
 
     rowEl.appendChild(card);
@@ -875,18 +875,18 @@ function pulseNotch() {
   pulseTimer = setTimeout(() => n.classList.remove('recv-pulse'), 1300);
 }
 
-function removeItems(paths) {
+// propagate = false pour un retrait LOCAL (ex. glisser le fichier dehors : on l'extrait
+// pour s'en servir, il reste dans la bibliotheque commune des autres appareils).
+function removeItems(paths, propagate = true) {
   const drop = new Set(paths);
   if (!drop.size) return;
-  // Ids partages des items retires -> on propage la suppression aux pairs (cohérence
-  // de la bibliotheque commune : supprimer un fichier le retire partout).
   const ids = items.filter((i) => drop.has(i.path) && i.id).map((i) => i.id);
   items = items.filter((i) => !drop.has(i.path));
   paths.forEach((p) => selected.delete(p));
   persist();
   renderShelf();
-  // Propagation aux appareils appaires (reglable). Si desactivee, la suppression reste locale.
-  if (ids.length && prefs.removePropagates !== false) window.notch.removeShared(ids);
+  // Suppression EXPLICITE -> propagee aux appareils appaires (si removePropagates actif).
+  if (propagate && ids.length && prefs.removePropagates !== false) window.notch.removeShared(ids);
 }
 
 // Clavier (encoche ouverte) : Suppr/Retour arriere retire la selection, Echap la vide,

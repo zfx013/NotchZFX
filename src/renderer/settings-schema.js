@@ -353,7 +353,7 @@
               type: 'toggle',
               key: 'removeOnDragOut',
               label: "Retirer de la barre en glissant le fichier dehors",
-              desc: "Quand tu fais glisser un fichier hors de l'encoche (vers le Finder, une app...), il est retire de la barre au lieu d'y rester.",
+              desc: "Faire glisser un fichier hors de l'encoche (vers le Finder, une app...) le retire de TA barre. Il reste dans la bibliotheque des autres appareils (retrait local, pas une suppression).",
             },
             {
               type: 'toggle',
