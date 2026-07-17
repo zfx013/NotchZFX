@@ -1531,7 +1531,22 @@ ipcMain.on('start-drag', (e, filePaths) => {
   try {
     const files = (Array.isArray(filePaths) ? filePaths : [filePaths]).filter(Boolean);
     if (!files.length) return;
+    // startDrag() BLOQUE (boucle de drag native) jusqu'a la FIN du glisser (drop/annulation).
     e.sender.startDrag({ files, icon: iconImage });
+    preventClose = false; // le drag est termine -> l'encoche peut se refermer
+    // Ici le drag est termine. On regarde ou est le curseur : HORS de l'encoche = le
+    // fichier a ete sorti (a retirer si removeOnDragOut) ; DEDANS = repose sur la barre.
+    const n = notches.find((x) => alive(x) && x.win.webContents === e.sender);
+    let leftNotch = true;
+    if (n && alive(n)) {
+      const p = screen.getCursorScreenPoint();
+      const b = n.win.getBounds();
+      leftNotch = !(p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height);
+    }
+    // Signale la fin du drag au renderer -> il retire l'item (si sorti) ET relache le
+    // maintien-ouvert (sinon l'encoche restait depliee : le drag natif ne declenche pas
+    // de dragleave/drop en sortie de fenetre).
+    if (!e.sender.isDestroyed()) e.sender.send('drag-ended', { files, leftNotch });
   } catch (err) {
     console.warn('drag natif echoue:', err.message);
   }

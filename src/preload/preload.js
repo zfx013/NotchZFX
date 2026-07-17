@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('notch', {
   onExternalDrop: (cb) => ipcRenderer.on('external-drop', (_e, d) => cb(d)),
   getThumb: (p) => ipcRenderer.invoke('get-thumb', p),
   startDrag: (p) => ipcRenderer.send('start-drag', p),
+  onDragEnded: (cb) => ipcRenderer.on('drag-ended', (_e, d) => cb(d)),
   openFile: (p) => ipcRenderer.send('open-file', p),
   revealFile: (p) => ipcRenderer.send('reveal-file', p),
   quickLook: (paths) => ipcRenderer.send('quicklook', paths),

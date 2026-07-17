@@ -42,6 +42,7 @@ let items = []; // { path, name, dir: 'in'|'local' }
 let hoverTimer = null;
 let hideTimer = null;
 let dragDepth = 0;
+let outgoingDrag = false; // vrai pendant qu'on glisse un fichier HORS de l'encoche
 let releaseTimer = null;
 
 // ---- NotchShape : path fidele (NotchShape.swift:36-119) ----
@@ -669,9 +670,11 @@ function renderShelf() {
     // (le drag natif a deja capture les chemins cote main -> la copie aboutit quand meme).
     card.addEventListener('dragstart', (e) => {
       e.preventDefault();
+      outgoingDrag = true; // glisser SORTANT : ignore la logique de maintien des drops entrants
       const paths = effectiveSelection(it.path);
       window.notch.startDrag(paths);
-      if (prefs.removeOnDragOut) setTimeout(() => removeItems(paths, false), 60); // retrait LOCAL (extraction)
+      // Le retrait (si "retirer en glissant dehors") se fait a la FIN du drag, quand tu
+      // LACHES le fichier hors de l'encoche -> gere par onDragEnded (pas de timer ici).
     });
 
     rowEl.appendChild(card);
@@ -1012,8 +1015,21 @@ function endDrag() {
   releaseDragHold();
 }
 
+// Fin d'un glisser SORTANT (le main l'apprend car startDrag bloque jusqu'au drop). On
+// relache toujours le maintien-ouvert (sinon l'encoche reste depliee), et on retire le
+// fichier UNIQUEMENT s'il a ete sorti de l'encoche (leftNotch) et si l'option est active.
+window.notch.onDragEnded((d) => {
+  outgoingDrag = false;
+  endDrag();
+  const files = d && d.files;
+  if (d && d.leftNotch && prefs.removeOnDragOut && Array.isArray(files) && files.length) {
+    removeItems(files, false); // retrait LOCAL (extraction hors de l'encoche)
+  }
+});
+
 document.addEventListener('dragenter', (e) => {
   e.preventDefault();
+  if (outgoingDrag) return; // notre propre fichier qui sort : pas de maintien-ouvert
   dragDepth++;
   if (dragDepth === 1) window.notch.dbg('DOM dragenter');
   holdOpenForDrag();
@@ -1022,11 +1038,13 @@ document.addEventListener('dragenter', (e) => {
 document.addEventListener('dragover', (e) => e.preventDefault());
 document.addEventListener('dragleave', (e) => {
   e.preventDefault();
+  if (outgoingDrag) return;
   dragDepth = Math.max(0, dragDepth - 1);
   if (dragDepth === 0) releaseDragHold();
 });
 document.addEventListener('drop', (e) => {
   e.preventDefault();
+  if (outgoingDrag) return; // depot de notre propre fichier -> gere par onDragEnded
   window.notch.dbg('DOM drop, files=' + (e.dataTransfer.files ? e.dataTransfer.files.length : 0));
   endDrag();
   // Filet de securite : depot dans l'encoche ouverte hors zones dediees -> bibliotheque
