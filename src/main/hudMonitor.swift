@@ -178,4 +178,9 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let monitor = HudMonitor()
 monitor.start()
+// Suicide si le parent (Electron) meurt -> pas de moniteur orphelin apres un crash.
+let hudParentPID = getppid()
+Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+    if getppid() != hudParentPID { exit(0) }
+}
 app.run()

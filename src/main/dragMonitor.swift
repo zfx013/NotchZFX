@@ -167,4 +167,9 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory) // pas d'icone dans le dock
 let delegate = Catcher()
 app.delegate = delegate
+// Suicide si le parent (Electron) meurt -> pas de fenetre attrape-drop orpheline.
+let dragParentPID = getppid()
+Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+    if getppid() != dragParentPID { exit(0) }
+}
 app.run()

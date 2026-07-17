@@ -175,6 +175,12 @@ final class Interceptor {
         Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
             if let t = self.tap, !CGEvent.tapIsEnabled(tap: t) { CGEvent.tapEnable(tap: t, enable: true) }
         }
+        // Suicide si le parent (Electron) meurt -> jamais de tap clavier orphelin apres
+        // un crash / kill brutal (sinon l'event tap survit et parasite le clavier).
+        let parentPID = getppid()
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            if getppid() != parentPID { exit(0) } // reparente a launchd -> parent parti
+        }
         CFRunLoopRun()
     }
 }
