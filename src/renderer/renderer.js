@@ -885,7 +885,8 @@ function removeItems(paths) {
   paths.forEach((p) => selected.delete(p));
   persist();
   renderShelf();
-  if (ids.length) window.notch.removeShared(ids);
+  // Propagation aux appareils appaires (reglable). Si desactivee, la suppression reste locale.
+  if (ids.length && prefs.removePropagates !== false) window.notch.removeShared(ids);
 }
 
 // Clavier (encoche ouverte) : Suppr/Retour arriere retire la selection, Echap la vide,

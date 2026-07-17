@@ -349,9 +349,18 @@
           rows: [
             { type: 'toggle', key: 'shelfEnabled', label: 'Activer la bibliotheque' },
             { type: 'toggle', key: 'shelfOpenByDefault', label: 'Ouvrir la bibliotheque par defaut si des elements sont presents' },
-            { type: 'toggle', key: 'expandedDragArea', label: 'Expanded drag detection area' },
-            { type: 'toggle', key: 'copyItemsOnDrag', label: 'Copy items on drag' },
-            { type: 'toggle', key: 'removeOnDragOut', label: 'Remove from shelf after dragging' },
+            {
+              type: 'toggle',
+              key: 'removeOnDragOut',
+              label: "Retirer de la barre en glissant le fichier dehors",
+              desc: "Quand tu fais glisser un fichier hors de l'encoche (vers le Finder, une app...), il est retire de la barre au lieu d'y rester.",
+            },
+            {
+              type: 'toggle',
+              key: 'removePropagates',
+              label: 'Retirer un fichier le retire de tous les appareils',
+              desc: "Supprimer un fichier de la barre le retire aussi de tes appareils appaires (bibliotheque commune). Desactive pour ne le retirer que d'ici.",
+            },
           ],
         },
         {

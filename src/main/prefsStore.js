@@ -75,7 +75,8 @@ const DEFAULTS = {
   shelfOpenByDefault: true,
   expandedDragArea: true,
   copyItemsOnDrag: false,
-  removeOnDragOut: false,
+  removeOnDragOut: false,               // glisser un fichier hors de l'encoche -> le retirer de la barre
+  removePropagates: true,              // retirer un fichier le retire aussi des appareils appaires
   quickShareService: 'airdrop',        // airdrop | peer
 
   // ---- Raccourcis ----
