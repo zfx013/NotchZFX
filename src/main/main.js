@@ -1566,9 +1566,11 @@ ipcMain.on('quicklook', (e, paths) => {
   const list = (Array.isArray(paths) ? paths : [paths]).filter((p) => typeof p === 'string' && p);
   if (!list.length) return;
   qlNotch = notches.find((x) => alive(x) && x.win.webContents === e.sender) || null;
-  // Cede le focus -> laisse le helper Quick Look devenir l'app active (il s'active
-  // lui-meme ; comme il est lance par l'app active, macOS autorise le transfert).
-  if (qlNotch) { try { qlNotch.win.setFocusable(false); } catch (_) {} }
+  // Cede le focus + ABAISSE l'encoche (niveau main-menu+3) sous le niveau normal, sinon
+  // le panneau Quick Look s'ouvre DERRIERE l'encoche. On restaure a la fermeture.
+  if (qlNotch) {
+    try { qlNotch.win.setFocusable(false); qlNotch.win.setAlwaysOnTop(false); } catch (_) {}
+  }
   try {
     // Helper natif QLPreviewPanel : Espace/Echap/fleches y marchent (contrairement a
     // `qlmanage -p` qui ne prend pas le focus). Repli sur qlmanage si le helper manque.
@@ -1578,9 +1580,11 @@ ipcMain.on('quicklook', (e, paths) => {
       : spawn('/usr/bin/qlmanage', ['-p', ...list], { stdio: 'ignore' });
     const onDone = () => {
       qlProc = null;
-      // Rend le focus a l'encoche si elle est encore ouverte -> Espace rouvre l'apercu.
-      if (qlNotch && alive(qlNotch) && qlNotch.state === 'open') {
-        try { qlNotch.win.setFocusable(true); qlNotch.win.focus(); } catch (_) {}
+      if (qlNotch && alive(qlNotch)) {
+        // Restaure le niveau eleve de l'encoche (au-dessus du reste).
+        try { qlNotch.win.setAlwaysOnTop(true, 'main-menu', 3); } catch (_) {}
+        // Rend le focus a l'encoche si encore ouverte -> Espace rouvre l'apercu.
+        if (qlNotch.state === 'open') { try { qlNotch.win.setFocusable(true); qlNotch.win.focus(); } catch (_) {} }
       }
       qlNotch = null;
     };

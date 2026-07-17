@@ -34,6 +34,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.delegate = controller
         panel.currentPreviewItemIndex = 0
         panel.makeKeyAndOrderFront(nil)
+        // Au-dessus de l'encoche (elle est a main-menu+3) pour ne pas s'ouvrir derriere.
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 4)
         // Quand le panneau se ferme (espace/echap/clic), on quitte le helper.
         observer = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: panel, queue: .main
