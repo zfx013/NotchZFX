@@ -69,6 +69,8 @@ const selfId = crypto.randomUUID();
 let deviceId = selfId; // identite STABLE (chargee/generee depuis les prefs au demarrage)
 
 let preventClose = false; // menu contextuel ouvert / drag en cours de ciblage
+let pendingDragOut = null; // glisser SORTANT en cours : { files, sender, notch } resolu au LACHER (onEnd)
+let pendingDragOutTimer = null;
 let dragActive = false;  // un drag de fichier est en cours (detecteur global)
 let dragDaemon = null;
 let probedGeo = null;    // geometrie de l'encoche physique (built-in), si sondee
@@ -861,7 +863,7 @@ app.whenReady().then(async () => {
   // parasite sur le bureau. Les chemins arrivent via onDrop.
   dragDaemon = startDragMonitor({
     onStart: () => { dragActive = true; },
-    onEnd: () => { dragActive = false; },
+    onEnd: () => { dragActive = false; resolveDragOut(); }, // souris relachee = LACHER
     onDrop: (paths) => { handleCaughtDrop(paths); },
   });
 
@@ -1531,26 +1533,39 @@ ipcMain.on('start-drag', (e, filePaths) => {
   try {
     const files = (Array.isArray(filePaths) ? filePaths : [filePaths]).filter(Boolean);
     if (!files.length) return;
-    // startDrag() BLOQUE (boucle de drag native) jusqu'a la FIN du glisser (drop/annulation).
-    e.sender.startDrag({ files, icon: iconImage });
-    preventClose = false; // le drag est termine -> l'encoche peut se refermer
-    // Ici le drag est termine. On regarde ou est le curseur : HORS de l'encoche = le
-    // fichier a ete sorti (a retirer si removeOnDragOut) ; DEDANS = repose sur la barre.
     const n = notches.find((x) => alive(x) && x.win.webContents === e.sender);
-    let leftNotch = true;
+    // startDrag est NON bloquant et n'emet pas de dragend. On attend la FIN REELLE du
+    // glisser = le RELACHEMENT de la souris, signale par DragCatcher (onEnd). Le retrait
+    // se fait donc au LACHER, jamais des la prise.
+    e.sender.startDrag({ files, icon: iconImage });
     if (n && alive(n)) {
-      const p = screen.getCursorScreenPoint();
-      const b = n.win.getBounds();
-      leftNotch = !(p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height);
+      pendingDragOut = { files, sender: e.sender, notch: n };
+      preventClose = true; // maintien ouvert PENDANT le glisser (relache au lacher)
+      clearTimeout(pendingDragOutTimer);
+      // Securite : si aucun END n'arrive (DragCatcher absent), on nettoie apres 20 s.
+      pendingDragOutTimer = setTimeout(() => { if (pendingDragOut) { pendingDragOut = null; preventClose = false; } }, 20000);
     }
-    // Signale la fin du drag au renderer -> il retire l'item (si sorti) ET relache le
-    // maintien-ouvert (sinon l'encoche restait depliee : le drag natif ne declenche pas
-    // de dragleave/drop en sortie de fenetre).
-    if (!e.sender.isDestroyed()) e.sender.send('drag-ended', { files, leftNotch });
   } catch (err) {
     console.warn('drag natif echoue:', err.message);
   }
 });
+
+// Resout un glisser sortant au LACHER (appele par onEnd = souris relachee). Si le curseur
+// est HORS de l'encoche -> fichier sorti (retrait cote renderer si removeOnDragOut).
+function resolveDragOut() {
+  if (!pendingDragOut) return;
+  const { files, sender, notch } = pendingDragOut;
+  pendingDragOut = null;
+  clearTimeout(pendingDragOutTimer);
+  preventClose = false; // le glisser est fini -> l'encoche peut se refermer
+  let leftNotch = true;
+  if (alive(notch)) {
+    const p = screen.getCursorScreenPoint();
+    const b = notch.win.getBounds();
+    leftNotch = !(p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height);
+  }
+  if (sender && !sender.isDestroyed()) sender.send('drag-ended', { files, leftNotch });
+}
 
 ipcMain.on('dbg', (_e, m) => console.log('[renderer]', m));
 ipcMain.on('open-file', (_e, p) => shell.openPath(p));
