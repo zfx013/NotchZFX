@@ -9,10 +9,14 @@ const fs = require('fs');
 const MK_BIN = path.join(__dirname, 'MediaKeyInterceptor.app', 'Contents', 'MacOS', 'MediaKeyInterceptor');
 const BUILD_SCRIPT = path.join(__dirname, 'build-mediakeys.sh');
 
-// startMediaKeys({ onStatus, onKey, onLog }) -> { kill() }
+// startMediaKeys({ onStatus, onKey, onLog, onScreenOff, onSpecial, f6, offCode }) -> { kill() }
 //   onStatus('ok' | 'need-accessibility')  etat de l'interception
 //   onKey(code)                            touche media appliquee (0/1 vol, 7 mute, 2/3 lum)
-function startMediaKeys({ onStatus, onKey, onLog } = {}) {
+//   onScreenOff()                          F6 (ou code configure) captee -> ecran eteint
+//   onSpecial(code)                        touche-fonction speciale vue (decouverte du code)
+//   f6=true                                active la capture de F6 (env MK_F6)
+//   offCode                                code NX_SYSDEFINED a intercepter (env MK_OFFCODE)
+function startMediaKeys({ onStatus, onKey, onLog, onScreenOff, onSpecial, f6, offCode } = {}) {
   if (process.platform !== 'darwin') return { kill() {} };
   if (!fs.existsSync(MK_BIN)) {
     try { spawnSync('bash', [BUILD_SCRIPT], { stdio: 'ignore' }); } catch (_) {}
@@ -31,13 +35,21 @@ function startMediaKeys({ onStatus, onKey, onLog } = {}) {
     } else if (line.startsWith('KEY ')) {
       const c = parseInt(line.slice(4), 10);
       if (!Number.isNaN(c) && onKey) onKey(c);
+    } else if (line === 'SCREENOFF') {
+      if (onScreenOff) onScreenOff();
+    } else if (line.startsWith('SPECIAL ')) {
+      const c = parseInt(line.slice(8), 10);
+      if (!Number.isNaN(c) && onSpecial) onSpecial(c);
     }
   }
 
   function spawnChild() {
     if (killed) return;
     // Prompt Accessibilite uniquement au tout premier lancement.
-    const env = Object.assign({}, process.env, firstSpawn ? { MK_PROMPT: '1' } : {});
+    const env = Object.assign({}, process.env,
+      firstSpawn ? { MK_PROMPT: '1' } : {},
+      f6 ? { MK_F6: '1' } : {},
+      (offCode != null && offCode >= 0) ? { MK_OFFCODE: String(offCode) } : {});
     firstSpawn = false;
     try {
       child = spawn(MK_BIN, [], { stdio: ['ignore', 'pipe', 'pipe'], env });

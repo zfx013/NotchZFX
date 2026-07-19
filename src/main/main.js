@@ -1017,7 +1017,9 @@ app.whenReady().then(async () => {
     // Intercepteur de touches media : consomme volume/luminosite pour SUPPRIMER la
     // jauge native (macOS 26 la dessine in-process dans ControlCenter -> pas tuable).
     // Necessite la permission Accessibilite ; on guide l'utilisateur si absente.
-    if (!prefsStore || prefsStore.get('replaceSystemHUD')) {
+    const wantHUD = !prefsStore || prefsStore.get('replaceSystemHUD');
+    const wantF6 = !prefsStore || prefsStore.get('f6ScreenOff');
+    if (wantHUD || wantF6) {
       mediaKeysHandle = startMediaKeys({
         onStatus: (st) => {
           accessibilityStatus = st;
@@ -1025,6 +1027,10 @@ app.whenReady().then(async () => {
         },
         onKey: () => {}, // le changement est applique par le helper ; le HUDMonitor affiche le HUD
         onLog: () => {},
+        f6: wantF6,                                   // capture F6 -> ecran eteint
+        offCode: prefsStore ? prefsStore.get('f6OffCode') : -1, // code special (decouvert)
+        onScreenOff: () => { if (!prefsStore || prefsStore.get('f6ScreenOff')) startScreenOff(); },
+        onSpecial: (code) => logSpecialKey(code),     // decouverte du code de F6/lune
       });
     }
 
@@ -1658,7 +1664,7 @@ function stopScreenOff() {
   screenOffTimers = [];
   if (screenOffProc) { try { screenOffProc.kill(); } catch (_) {} screenOffProc = null; }
 }
-ipcMain.on('screen-off', () => {
+function startScreenOff() {
   if (process.platform !== 'darwin') return;
   stopScreenOff();
   try { screenOffProc = spawn('/usr/bin/caffeinate', ['-i', '-m', '-s'], { stdio: 'ignore' }); } catch (_) { screenOffProc = null; }
@@ -1685,7 +1691,21 @@ ipcMain.on('screen-off', () => {
     }
   }, 200);
   screenOffTimers.push(arm);
-});
+}
+ipcMain.on('screen-off', () => startScreenOff());
+
+// Decouverte du code de la touche-fonction a intercepter (ex. F6/Ne-pas-deranger) : on
+// note les derniers codes vus dans un fichier pour identifier celui a mapper.
+function logSpecialKey(code) {
+  console.log('[mediaKeys] SPECIAL', code);
+  try {
+    const f = path.join(app.getPath('userData'), 'keydiscover.log');
+    let prev = '';
+    try { prev = fs.readFileSync(f, 'utf8'); } catch (_) {}
+    const lines = (prev + code + '\n').split('\n').filter(Boolean).slice(-30);
+    fs.writeFileSync(f, lines.join('\n') + '\n');
+  } catch (_) {}
+}
 
 ipcMain.on('quit-app', () => app.quit());
 

@@ -122,6 +122,13 @@ func handleKey(_ code: Int) -> Bool {
 }
 let TARGET: Set<Int> = [0, 1, 7, 2, 3]
 
+// Capture F6 -> ecran eteint (option). MK_F6=1 active la capture des touches clavier
+// (uniquement pour reperer F6 : keycode 97 standard OU un code de touche-fonction special
+// annonce a l'app pour decouverte). MK_OFFCODE = code NX_SYSDEFINED a intercepter.
+let F6_CAPTURE = ProcessInfo.processInfo.environment["MK_F6"] == "1"
+let F6_OFFCODE = Int(ProcessInfo.processInfo.environment["MK_OFFCODE"] ?? "") ?? -1
+let F6_KEYCODE: Int64 = 97 // F6 standard
+
 // ---------------------------------------------------------------------------
 // Event tap
 // ---------------------------------------------------------------------------
@@ -136,11 +143,22 @@ final class Interceptor {
         let trusted = AXIsProcessTrustedWithOptions(opts)
         if !trusted { emit("NEED_ACCESSIBILITY") }
 
-        let mask: CGEventMask = (1 << 14) // NX_SYSDEFINED
+        // NX_SYSDEFINED (media) + keyDown (F6 standard) si la capture F6 est activee.
+        var mask: CGEventMask = (1 << 14)
+        if F6_CAPTURE { mask |= (1 << CGEventType.keyDown.rawValue) }
         let cb: CGEventTapCallBack = { _, type, event, refcon in
             let me = Unmanaged<Interceptor>.fromOpaque(refcon!).takeUnretainedValue()
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let t = me.tap { CGEvent.tapEnable(tap: t, enable: true) }
+                return Unmanaged.passUnretained(event)
+            }
+            // Touche clavier "normale" : on n'inspecte QUE le keycode (jamais le texte) et
+            // on n'agit que sur F6 (97) -> ecran eteint. Tout le reste passe intact.
+            if type == .keyDown {
+                if F6_CAPTURE {
+                    let kc = event.getIntegerValueField(.keyboardEventKeycode)
+                    if kc == F6_KEYCODE { emit("SCREENOFF"); return nil }
+                }
                 return Unmanaged.passUnretained(event)
             }
             guard let ns = NSEvent(cgEvent: event), ns.type == .systemDefined, ns.subtype.rawValue == 8 else {
@@ -157,6 +175,11 @@ final class Interceptor {
                 }
                 // Echec d'application (ex. ecran externe sans DDC) -> on laisse passer
                 // (fail open) : la touche reste fonctionnelle, quitte a montrer l'OSD natif.
+            } else if isDown && F6_CAPTURE {
+                // Touche-fonction speciale non geree (ex. F6/Ne-pas-deranger) : on l'annonce
+                // pour DECOUVERTE, et on l'intercepte si c'est le code configure.
+                emit("SPECIAL \(code)")
+                if code == F6_OFFCODE { emit("SCREENOFF"); return nil }
             }
             return Unmanaged.passUnretained(event)
         }

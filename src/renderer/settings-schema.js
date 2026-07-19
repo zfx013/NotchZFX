@@ -410,6 +410,18 @@
       icon: 'advanced',
       sections: [
         {
+          title: 'Touche F6',
+          rows: [
+            {
+              type: 'toggle',
+              key: 'f6ScreenOff',
+              label: 'F6 (lune) éteint l\'écran au lieu de « Ne pas déranger »',
+              desc: "Quand l'app tourne, la touche F6 coupe l'écran + le clavier (comme le bouton lune) en gardant le Mac allumé, au lieu d'activer Ne pas déranger. Nécessite la permission Accessibilité.",
+            },
+          ],
+          note: "Astuce : le bouton lune du header fait la même chose au clic.",
+        },
+        {
           title: "Couleur d'accent",
           rows: [
             { type: 'colorAccent', modeKey: 'accentMode', colorKey: 'accentColor' },

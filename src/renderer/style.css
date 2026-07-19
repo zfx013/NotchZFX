@@ -195,7 +195,7 @@ html, body {
   font-size: 11px; line-height: 1.2; padding: 5px 9px; border-radius: 8px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
   opacity: 0; transform: translateY(-4px); pointer-events: none;
-  transition: opacity .12s ease .55s, transform .12s ease .55s; /* delai ~0.55s */
+  transition: opacity .12s ease 1.3s, transform .12s ease 1.3s; /* delai ~1.3s avant apparition */
   z-index: 50;
 }
 .power-btn[data-tip]:hover::after { opacity: 1; transform: translateY(0); }
