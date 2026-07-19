@@ -1668,28 +1668,22 @@ function startScreenOff() {
   if (process.platform !== 'darwin') return;
   stopScreenOff();
   try { screenOffProc = spawn('/usr/bin/caffeinate', ['-i', '-m', '-s'], { stdio: 'ignore' }); } catch (_) { screenOffProc = null; }
-  // 1) On ATTEND que l'utilisateur retire son doigt (inactivite ~1 s) avant de couper,
-  // sinon le clic/trackpad rallume l'ecran aussitot. Coupe quand meme apres 3 s max.
-  let waited = 0;
-  const arm = setInterval(() => {
-    waited += 200;
-    let idle = 0;
-    try { idle = powerMonitor.getSystemIdleTime(); } catch (_) {}
-    if (idle >= 1 || waited >= 3000) {
-      clearInterval(arm);
-      screenOffTimers = screenOffTimers.filter((t) => t !== arm);
-      execFile('/usr/bin/pmset', ['displaysleepnow'], () => {}); // ecran + clavier off
-      // 2) On surveille le reveil (mouvement) pour arreter le maintien.
-      let ready = false;
-      const watch = setInterval(() => {
-        let i2 = 999;
-        try { i2 = powerMonitor.getSystemIdleTime(); } catch (_) {}
-        if (i2 >= 3) ready = true;               // ecran bien endormi
-        else if (ready && i2 <= 1) stopScreenOff(); // activite -> on sort
-      }, 800);
-      screenOffTimers.push(watch);
-    }
-  }, 200);
+  // 1) Petit delai FIXE (350 ms) : juste assez pour lever le doigt du trackpad apres le
+  // clic, sans la latence de l'ancienne detection d'inactivite (getSystemIdleTime est en
+  // SECONDES entieres -> attendait ~1 s pleine). Reste bien reactif.
+  const arm = setTimeout(() => {
+    screenOffTimers = screenOffTimers.filter((t) => t !== arm);
+    execFile('/usr/bin/pmset', ['displaysleepnow'], () => {}); // ecran + clavier off
+    // 2) On surveille le reveil (mouvement) pour arreter le maintien.
+    let ready = false;
+    const watch = setInterval(() => {
+      let i2 = 999;
+      try { i2 = powerMonitor.getSystemIdleTime(); } catch (_) {}
+      if (i2 >= 3) ready = true;               // ecran bien endormi
+      else if (ready && i2 <= 1) stopScreenOff(); // activite -> on sort
+    }, 800);
+    screenOffTimers.push(watch);
+  }, 350);
   screenOffTimers.push(arm);
 }
 ipcMain.on('screen-off', () => startScreenOff());
