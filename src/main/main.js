@@ -1652,23 +1652,39 @@ ipcMain.on('set-keep-awake', (_e, on) => {
 // systeme eveille ; au moindre mouvement l'ecran se rallume (luminosite restauree par
 // macOS) et on arrete le maintien.
 let screenOffProc = null;
-let screenOffPoll = null;
+let screenOffTimers = [];
 function stopScreenOff() {
-  if (screenOffPoll) { clearInterval(screenOffPoll); screenOffPoll = null; }
+  screenOffTimers.forEach((t) => clearInterval(t));
+  screenOffTimers = [];
   if (screenOffProc) { try { screenOffProc.kill(); } catch (_) {} screenOffProc = null; }
 }
 ipcMain.on('screen-off', () => {
   if (process.platform !== 'darwin') return;
   stopScreenOff();
   try { screenOffProc = spawn('/usr/bin/caffeinate', ['-i', '-m', '-s'], { stdio: 'ignore' }); } catch (_) { screenOffProc = null; }
-  execFile('/usr/bin/pmset', ['displaysleepnow'], () => {});
-  let armed = false;
-  screenOffPoll = setInterval(() => {
-    let idle = 999;
+  // 1) On ATTEND que l'utilisateur retire son doigt (inactivite ~1 s) avant de couper,
+  // sinon le clic/trackpad rallume l'ecran aussitot. Coupe quand meme apres 3 s max.
+  let waited = 0;
+  const arm = setInterval(() => {
+    waited += 200;
+    let idle = 0;
     try { idle = powerMonitor.getSystemIdleTime(); } catch (_) {}
-    if (idle >= 4) armed = true;               // l'ecran s'est bien endormi
-    else if (armed && idle <= 1) stopScreenOff(); // activite -> on sort du mode
-  }, 1000);
+    if (idle >= 1 || waited >= 3000) {
+      clearInterval(arm);
+      screenOffTimers = screenOffTimers.filter((t) => t !== arm);
+      execFile('/usr/bin/pmset', ['displaysleepnow'], () => {}); // ecran + clavier off
+      // 2) On surveille le reveil (mouvement) pour arreter le maintien.
+      let ready = false;
+      const watch = setInterval(() => {
+        let i2 = 999;
+        try { i2 = powerMonitor.getSystemIdleTime(); } catch (_) {}
+        if (i2 >= 3) ready = true;               // ecran bien endormi
+        else if (ready && i2 <= 1) stopScreenOff(); // activite -> on sort
+      }, 800);
+      screenOffTimers.push(watch);
+    }
+  }, 200);
+  screenOffTimers.push(arm);
 });
 
 ipcMain.on('quit-app', () => app.quit());

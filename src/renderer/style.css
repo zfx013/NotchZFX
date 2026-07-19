@@ -172,9 +172,9 @@ html, body {
 .power-btn { position: relative; transition: background .15s ease, color .15s ease; }
 .power-btn.active { background: var(--accent); color: #fff; }
 .power-btn.active:hover { background: var(--accent); filter: brightness(1.1); }
-/* Clic : petit rebond + halo qui s'estompe */
+/* Clic : petit rebond + halo qui s'estompe (halo sur ::before) */
 .power-btn.pressed { animation: powerPress .45s ease; }
-.power-btn.pressed::after {
+.power-btn.pressed::before {
   content: ""; position: absolute; inset: 0; border-radius: inherit;
   animation: powerHalo .45s ease-out; pointer-events: none;
 }
@@ -186,9 +186,22 @@ html, body {
   0% { box-shadow: 0 0 0 0 rgba(185, 140, 255, .55); opacity: 1; }
   100% { box-shadow: 0 0 0 11px rgba(185, 140, 255, 0); opacity: 0; }
 }
+/* Tooltip au survol (sur ::after) : apparait apres un petit delai, sous le bouton. */
+.power-btn[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute; top: calc(100% + 7px); right: 0;
+  white-space: nowrap;
+  background: rgba(18, 18, 26, 0.97); color: #fff;
+  font-size: 11px; line-height: 1.2; padding: 5px 9px; border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .45);
+  opacity: 0; transform: translateY(-4px); pointer-events: none;
+  transition: opacity .12s ease .55s, transform .12s ease .55s; /* delai ~0.55s */
+  z-index: 50;
+}
+.power-btn[data-tip]:hover::after { opacity: 1; transform: translateY(0); }
 @media (prefers-reduced-motion: reduce) {
   .power-btn.pressed { animation: none; }
-  .power-btn.pressed::after { animation: none; }
+  .power-btn.pressed::before { animation: none; }
 }
 
 /* Indicateur discret du PC pair (point vert + nom, cible de depot) */

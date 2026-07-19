@@ -25,12 +25,12 @@ const ICONS = {
     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.5 17.3V5.6a.8.8 0 01.63-.78l9-2A.8.8 0 0120.1 3.6v11.2a3.05 3.05 0 11-1.6-2.69V6.6l-7.4 1.64v10.56a3.05 3.05 0 11-1.6-2.69z"/></svg>',
   bolt:
     '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.5 2L5 13.5h5.5L10 22l8.5-11.5H13L13.5 2z"/></svg>',
-  // Tasse de cafe fumante -> "rester eveille" (caffeinate).
+  // Tasse de cafe avec un eclair (energie) -> "rester eveille".
   caffeine:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 9h11v4.2a3.8 3.8 0 0 1-3.8 3.8H8.3A3.8 3.8 0 0 1 4.5 13.2z"/><path d="M15.5 10h2.1a2 2 0 0 1 0 4h-2.1"/><path d="M11 20.5H9"/><path d="M7 3.4c-.5.9-.5 1.7 0 2.6M10.5 3.4c-.5.9-.5 1.7 0 2.6"/></svg>',
-  // Croissant de lune -> "ecran eteint" (nuit).
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5h9.3v3.7a3.7 3.7 0 0 1-3.7 3.7H8.2a3.7 3.7 0 0 1-3.7-3.7z"/><path d="M13.8 11.4h1.9a1.95 1.95 0 0 1 0 3.9h-1.9"/><path d="M6.7 21h5"/><path d="M10.4 2.3 7.3 7.1h2.2l-1 3.4 3.4-4.9H9.6z" fill="currentColor" stroke="none"/></svg>',
+  // Croissant de lune PLEIN -> "ecran eteint" (nuit).
   moon:
-    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 14.2A8.5 8.5 0 0 1 9.8 3 7.6 7.6 0 1 0 21 14.2z"/></svg>',
+    '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.4 2.6a9.4 9.4 0 1 0 9 12.2 1 1 0 0 0-1.35-1.16 6.6 6.6 0 0 1-8.6-8.6A1 1 0 0 0 12.4 2.6z"/></svg>',
   airdrop:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="butt"><path d="M10.35 14.36 A3.3 3.3 0 1 1 13.65 14.36"/><path d="M8.78 17.09 A6.45 6.45 0 1 1 15.22 17.09"/><path d="M7.2 19.81 A9.6 9.6 0 1 1 16.8 19.81"/><circle cx="12" cy="11.5" r="1.15" fill="currentColor" stroke="none"/></svg>',
   'speaker.wave':
