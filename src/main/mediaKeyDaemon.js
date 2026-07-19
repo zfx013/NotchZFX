@@ -16,7 +16,7 @@ const BUILD_SCRIPT = path.join(__dirname, 'build-mediakeys.sh');
 //   onSpecial(code)                        touche-fonction speciale vue (decouverte du code)
 //   f6=true                                active la capture de F6 (env MK_F6)
 //   offCode                                code NX_SYSDEFINED a intercepter (env MK_OFFCODE)
-function startMediaKeys({ onStatus, onKey, onLog, onScreenOff, onSpecial, f6, offCode } = {}) {
+function startMediaKeys({ onStatus, onKey, onLog, onScreenOff, onSpecial, f6, offCode, discover } = {}) {
   if (process.platform !== 'darwin') return { kill() {} };
   if (!fs.existsSync(MK_BIN)) {
     try { spawnSync('bash', [BUILD_SCRIPT], { stdio: 'ignore' }); } catch (_) {}
@@ -39,7 +39,14 @@ function startMediaKeys({ onStatus, onKey, onLog, onScreenOff, onSpecial, f6, of
       if (onScreenOff) onScreenOff();
     } else if (line.startsWith('SPECIAL ')) {
       const c = parseInt(line.slice(8), 10);
-      if (!Number.isNaN(c) && onSpecial) onSpecial(c);
+      if (!Number.isNaN(c) && onSpecial) onSpecial('sys', c);
+    } else if (line.startsWith('DISCKEY ')) {
+      const c = parseInt(line.slice(8), 10);
+      if (!Number.isNaN(c) && onSpecial) onSpecial('Fkey', c);
+    } else if (line.startsWith('SYSDEF ')) {
+      if (onSpecial) onSpecial('sysdef', line.slice(7)); // "<sous-type> <code>"
+    } else if (line.startsWith('CH ')) {
+      if (onSpecial) onSpecial('ch', line.slice(3)); // canal systeme brut (decouverte)
     }
   }
 
@@ -49,6 +56,7 @@ function startMediaKeys({ onStatus, onKey, onLog, onScreenOff, onSpecial, f6, of
     const env = Object.assign({}, process.env,
       firstSpawn ? { MK_PROMPT: '1' } : {},
       f6 ? { MK_F6: '1' } : {},
+      discover ? { MK_DISCOVER: '1' } : {},
       (offCode != null && offCode >= 0) ? { MK_OFFCODE: String(offCode) } : {});
     firstSpawn = false;
     try {

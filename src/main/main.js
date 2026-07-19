@@ -1029,8 +1029,9 @@ app.whenReady().then(async () => {
         onLog: () => {},
         f6: wantF6,                                   // capture F6 -> ecran eteint
         offCode: prefsStore ? prefsStore.get('f6OffCode') : -1, // code special (decouvert)
+        discover: !prefsStore || prefsStore.get('f6Discover'),  // mode decouverte (temporaire)
         onScreenOff: () => { if (!prefsStore || prefsStore.get('f6ScreenOff')) startScreenOff(); },
-        onSpecial: (code) => logSpecialKey(code),     // decouverte du code de F6/lune
+        onSpecial: (kind, code) => logSpecialKey(kind, code),   // decouverte du code de F6/lune
       });
     }
 
@@ -1689,14 +1690,20 @@ function startScreenOff() {
 ipcMain.on('screen-off', () => startScreenOff());
 
 // Decouverte du code de la touche-fonction a intercepter (ex. F6/Ne-pas-deranger) : on
-// note les derniers codes vus dans un fichier pour identifier celui a mapper.
-function logSpecialKey(code) {
-  console.log('[mediaKeys] SPECIAL', code);
+// note les derniers codes vus (avec leur type : 'key' clavier / 'sys' media) pour
+// identifier celui a mapper. Horodate pour distinguer les appuis.
+let lastDiscTs = 0;
+function logSpecialKey(kind, code) {
+  console.log('[mediaKeys] DISCOVER', kind, code);
   try {
     const f = path.join(app.getPath('userData'), 'keydiscover.log');
     let prev = '';
     try { prev = fs.readFileSync(f, 'utf8'); } catch (_) {}
-    const lines = (prev + code + '\n').split('\n').filter(Boolean).slice(-30);
+    const now = Date.now();
+    const gap = lastDiscTs ? Math.round((now - lastDiscTs) / 100) / 10 : 0; // secondes depuis le precedent
+    lastDiscTs = now;
+    const entry = `${kind} ${code}` + (gap >= 1 ? `   (+${gap}s)` : '');
+    const lines = (prev + entry + '\n').split('\n').filter(Boolean).slice(-40);
     fs.writeFileSync(f, lines.join('\n') + '\n');
   } catch (_) {}
 }

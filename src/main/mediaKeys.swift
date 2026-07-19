@@ -128,6 +128,12 @@ let TARGET: Set<Int> = [0, 1, 7, 2, 3]
 let F6_CAPTURE = ProcessInfo.processInfo.environment["MK_F6"] == "1"
 let F6_OFFCODE = Int(ProcessInfo.processInfo.environment["MK_OFFCODE"] ?? "") ?? -1
 let F6_KEYCODE: Int64 = 97 // F6 standard
+// Mode DECOUVERTE (temporaire) : on OBSERVE et on annonce les codes des touches (keycode
+// clavier + code media special) SANS rien consommer, pour identifier F6. Ne lit que des
+// codes numeriques, jamais de texte.
+let DISCOVER = ProcessInfo.processInfo.environment["MK_DISCOVER"] == "1"
+// Keycodes des touches de FONCTION F1..F15 (les seules loggees en decouverte).
+let FKEYS: Set<Int64> = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113]
 
 // ---------------------------------------------------------------------------
 // Event tap
@@ -143,25 +149,46 @@ final class Interceptor {
         let trusted = AXIsProcessTrustedWithOptions(opts)
         if !trusted { emit("NEED_ACCESSIBILITY") }
 
-        // NX_SYSDEFINED (media) + keyDown (F6 standard) si la capture F6 est activee.
+        // NX_SYSDEFINED (media) + keyDown (F6 standard) si la capture/decouverte est active.
         var mask: CGEventMask = (1 << 14)
-        if F6_CAPTURE { mask |= (1 << CGEventType.keyDown.rawValue) }
+        if F6_CAPTURE || DISCOVER { mask |= (1 << CGEventType.keyDown.rawValue) }
         let cb: CGEventTapCallBack = { _, type, event, refcon in
             let me = Unmanaged<Interceptor>.fromOpaque(refcon!).takeUnretainedValue()
             if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
                 if let t = me.tap { CGEvent.tapEnable(tap: t, enable: true) }
                 return Unmanaged.passUnretained(event)
             }
-            // Touche clavier "normale" : on n'inspecte QUE le keycode (jamais le texte) et
-            // on n'agit que sur F6 (97) -> ecran eteint. Tout le reste passe intact.
+            // Touche clavier "normale" : on n'inspecte QUE le keycode (jamais le texte).
+            // On n'agit / ne logue QUE pour les touches de FONCTION (F1-F15) -> aucune
+            // frappe de texte n'est enregistree (pas de keylogging).
             if type == .keyDown {
-                if F6_CAPTURE {
-                    let kc = event.getIntegerValueField(.keyboardEventKeycode)
-                    if kc == F6_KEYCODE { emit("SCREENOFF"); return nil }
-                }
+                let kc = event.getIntegerValueField(.keyboardEventKeycode)
+                if F6_CAPTURE && kc == F6_KEYCODE { emit("SCREENOFF"); return nil }
+                if DISCOVER && FKEYS.contains(kc) { emit("DISCKEY \(kc)") } // F1-F15 seulement
                 return Unmanaged.passUnretained(event)
             }
-            guard let ns = NSEvent(cgEvent: event), ns.type == .systemDefined, ns.subtype.rawValue == 8 else {
+            // Evenement systeme (media / touches speciales).
+            // DECOUVERTE : on logue TOUT ce qui arrive sur ce canal (type CGEvent + infos
+            // NSEvent si convertible), pour reperer F6/Ne-pas-deranger meme s'il n'est pas
+            // un media sous-type 8, ou si NSEvent ne le convertit pas.
+            if DISCOVER {
+                if let conv = NSEvent(cgEvent: event) {
+                    emit("CH type=\(type.rawValue) ns=\(conv.type.rawValue) sub=\(conv.subtype.rawValue) d1=\(String(conv.data1, radix: 16))")
+                } else {
+                    emit("CH type=\(type.rawValue) ns=nil")
+                }
+            }
+            guard let ns = NSEvent(cgEvent: event), ns.type == .systemDefined else {
+                return Unmanaged.passUnretained(event)
+            }
+            let sub = ns.subtype.rawValue
+            if sub != 8 {
+                // Autre sous-type (ex. F6/Ne-pas-deranger) : on annonce la SIGNATURE
+                // complete (sous-type + data1 + data2 en hexa) pour l'identifier sans
+                // ambiguite avant de l'intercepter.
+                if DISCOVER {
+                    emit("SYSDEF sub=\(sub) d1=\(String(ns.data1, radix: 16)) d2=\(String(ns.data2, radix: 16))")
+                }
                 return Unmanaged.passUnretained(event)
             }
             let data1 = ns.data1
@@ -175,11 +202,11 @@ final class Interceptor {
                 }
                 // Echec d'application (ex. ecran externe sans DDC) -> on laisse passer
                 // (fail open) : la touche reste fonctionnelle, quitte a montrer l'OSD natif.
-            } else if isDown && F6_CAPTURE {
+            } else if isDown && (F6_CAPTURE || DISCOVER) {
                 // Touche-fonction speciale non geree (ex. F6/Ne-pas-deranger) : on l'annonce
                 // pour DECOUVERTE, et on l'intercepte si c'est le code configure.
                 emit("SPECIAL \(code)")
-                if code == F6_OFFCODE { emit("SCREENOFF"); return nil }
+                if F6_CAPTURE && code == F6_OFFCODE { emit("SCREENOFF"); return nil }
             }
             return Unmanaged.passUnretained(event)
         }

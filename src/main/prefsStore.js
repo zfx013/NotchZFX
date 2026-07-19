@@ -78,8 +78,9 @@ const DEFAULTS = {
   removeOnDragOut: true,                // glisser un fichier hors de l'encoche -> le retirer de la barre
   removePropagates: true,              // retirer un fichier le retire aussi des appareils appaires
   keepAwake: false,                    // bouton "rester eveille" (caffeinate) memorise
-  f6ScreenOff: true,                   // capturer F6 (lune) -> ecran eteint (au lieu de Ne-pas-deranger)
-  f6OffCode: -1,                       // code NX_SYSDEFINED de F6 si touche speciale (decouvert au 1er test)
+  f6ScreenOff: true,                   // capturer fn+F6 (keycode 97) -> ecran eteint
+  f6OffCode: -1,                       // (inutilise : F6 seul/Lune est ingerable par une app, gere par macOS)
+  f6Discover: false,                   // mode decouverte de touche (OFF : plus aucun log de touches)
   quickShareService: 'airdrop',        // airdrop | peer
 
   // ---- Raccourcis ----
