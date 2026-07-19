@@ -6,7 +6,7 @@
 // - Etat ferme : click-through, sauf quand le curseur est sur la zone de l'encoche.
 // - Fermeture 100 ms apres sortie de la souris (ContentView.swift:542-557).
 // - Ouverture auto sur drag de fichier -> onglet shelf (DragDetector).
-const { app, BrowserWindow, ipcMain, screen, shell, nativeImage, Tray, Menu, ShareMenu, dialog, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, shell, nativeImage, Tray, Menu, ShareMenu, dialog, globalShortcut, powerMonitor } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -970,6 +970,9 @@ app.whenReady().then(async () => {
   setInterval(expirePeers, 3000);
 
   registerShortcuts(); // raccourci global d'ouverture de l'encoche (reglable)
+  if (prefsStore && prefsStore.get('keepAwake')) applyKeepAwake(true); // etat memorise
+
+
 
   // Reception AirDrop -> ajoute au shelf (le fichier reste dans ~/Downloads).
   startAirdropWatch((airdropPath) => {
@@ -1622,11 +1625,58 @@ ipcMain.on('quicklook', (e, paths) => {
     qlProc.on('exit', onDone);
   } catch (_) { qlProc = null; qlNotch = null; }
 });
+// ---- Rester eveille (caffeinate) + Ecran eteint (pmset displaysleepnow) [macOS] ----
+// caffeinate -i -m -s : empeche la veille systeme/disque/inactivite (l'ecran peut dormir).
+let awakeProc = null;
+function applyKeepAwake(on) {
+  if (process.platform !== 'darwin') return;
+  if (on && !awakeProc) {
+    try {
+      awakeProc = spawn('/usr/bin/caffeinate', ['-i', '-m', '-s'], { stdio: 'ignore' });
+      awakeProc.on('exit', () => { awakeProc = null; });
+      awakeProc.on('error', () => { awakeProc = null; });
+    } catch (_) { awakeProc = null; }
+  } else if (!on && awakeProc) {
+    try { awakeProc.kill(); } catch (_) {}
+    awakeProc = null;
+  }
+}
+ipcMain.on('set-keep-awake', (_e, on) => {
+  const v = !!on;
+  if (prefsStore) prefsStore.set('keepAwake', v);
+  applyKeepAwake(v);
+  broadcast('keep-awake', v);
+});
+
+// Ecran eteint : coupe ecran + retroeclairage clavier (aucune lumiere) en gardant le
+// systeme eveille ; au moindre mouvement l'ecran se rallume (luminosite restauree par
+// macOS) et on arrete le maintien.
+let screenOffProc = null;
+let screenOffPoll = null;
+function stopScreenOff() {
+  if (screenOffPoll) { clearInterval(screenOffPoll); screenOffPoll = null; }
+  if (screenOffProc) { try { screenOffProc.kill(); } catch (_) {} screenOffProc = null; }
+}
+ipcMain.on('screen-off', () => {
+  if (process.platform !== 'darwin') return;
+  stopScreenOff();
+  try { screenOffProc = spawn('/usr/bin/caffeinate', ['-i', '-m', '-s'], { stdio: 'ignore' }); } catch (_) { screenOffProc = null; }
+  execFile('/usr/bin/pmset', ['displaysleepnow'], () => {});
+  let armed = false;
+  screenOffPoll = setInterval(() => {
+    let idle = 999;
+    try { idle = powerMonitor.getSystemIdleTime(); } catch (_) {}
+    if (idle >= 4) armed = true;               // l'ecran s'est bien endormi
+    else if (armed && idle <= 1) stopScreenOff(); // activite -> on sort du mode
+  }, 1000);
+});
+
 ipcMain.on('quit-app', () => app.quit());
 
 app.on('window-all-closed', () => { /* reste actif en tray */ });
 app.on('will-quit', () => {
   try { globalShortcut.unregisterAll(); } catch (_) {}
+  applyKeepAwake(false); stopScreenOff(); // ne pas laisser caffeinate orphelin
   if (dragDaemon) dragDaemon.kill();
   if (mediaHandle) mediaHandle.stop();
   if (hudHandle) hudHandle.kill();

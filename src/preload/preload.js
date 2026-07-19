@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('notch', {
   revealFile: (p) => ipcRenderer.send('reveal-file', p),
   quickLook: (paths) => ipcRenderer.send('quicklook', paths),
   notchFocus: (on) => ipcRenderer.send('notch-focus', !!on),
+  setKeepAwake: (on) => ipcRenderer.send('set-keep-awake', !!on),
+  onKeepAwake: (cb) => ipcRenderer.on('keep-awake', (_e, on) => cb(on)),
+  screenOff: () => ipcRenderer.send('screen-off'),
 
   // Shelf : persistance
   onShelfItems: (cb) => ipcRenderer.on('shelf-items', (_e, items) => cb(items)),

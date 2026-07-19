@@ -287,10 +287,40 @@ function switchTab(view) {
 }
 switchTab(currentView);
 
-// ---- Header droite : engrenage + batterie ----
+// ---- Header droite : boutons power + engrenage + batterie ----
 $('gear-btn').appendChild(icon('gear'));
 $('gear-btn').addEventListener('click', () => window.notch.openSettings());
 $('gear-btn').addEventListener('contextmenu', (e) => { e.preventDefault(); window.notch.popupGearMenu(); });
+
+// Petite animation de clic (rebond + halo) sur les boutons power.
+function pressFx(btn) {
+  btn.classList.remove('pressed');
+  void btn.offsetWidth;
+  btn.classList.add('pressed');
+  setTimeout(() => btn.classList.remove('pressed'), 450);
+}
+
+// Boutons power (macOS uniquement) : "rester eveille" (toggle) + "ecran eteint".
+const awakeBtn = $('awake-btn');
+const dimBtn = $('dim-btn');
+if (isWin) {
+  awakeBtn.style.display = 'none';
+  dimBtn.style.display = 'none';
+} else {
+  awakeBtn.appendChild(icon('caffeine'));
+  dimBtn.appendChild(icon('moon'));
+  awakeBtn.addEventListener('click', () => {
+    const on = !awakeBtn.classList.contains('active');
+    awakeBtn.classList.toggle('active', on);
+    pressFx(awakeBtn);
+    window.notch.setKeepAwake(on);
+  });
+  window.notch.onKeepAwake((on) => awakeBtn.classList.toggle('active', !!on)); // synchro entre encoches
+  dimBtn.addEventListener('click', () => {
+    pressFx(dimBtn);
+    window.notch.screenOff();
+  });
+}
 
 let battObj = null;
 function renderBattery() {
@@ -318,6 +348,7 @@ $('batt-bolt').appendChild(icon('bolt'));
 // Applique les preferences d'UI cote encoche (batterie, engrenage, onglets).
 function applyUiPrefs() {
   $('gear-btn').style.display = prefs.showSettingsIcon === false ? 'none' : '';
+  if (!isWin) awakeBtn.classList.toggle('active', prefs.keepAwake === true); // etat memorise
   renderBattery();
 }
 

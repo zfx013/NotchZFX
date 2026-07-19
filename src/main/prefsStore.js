@@ -77,6 +77,7 @@ const DEFAULTS = {
   copyItemsOnDrag: false,
   removeOnDragOut: true,                // glisser un fichier hors de l'encoche -> le retirer de la barre
   removePropagates: true,              // retirer un fichier le retire aussi des appareils appaires
+  keepAwake: false,                    // bouton "rester eveille" (caffeinate) memorise
   quickShareService: 'airdrop',        // airdrop | peer
 
   // ---- Raccourcis ----
