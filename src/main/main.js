@@ -12,7 +12,7 @@ const fs = require('fs');
 const os = require('os');
 const https = require('https');
 const crypto = require('crypto');
-const { execFile, spawn } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
 const net = require('./network');
 const updater = require('./updater');
 const { baseGeometry, probeMacNotch } = require('./geometry');
@@ -970,7 +970,8 @@ app.whenReady().then(async () => {
   setInterval(expirePeers, 3000);
 
   registerShortcuts(); // raccourci global d'ouverture de l'encoche (reglable)
-  if (prefsStore && prefsStore.get('keepAwake')) applyKeepAwake(true); // etat memorise
+  if (prefsStore && prefsStore.get('keepAwake')) applyKeepAwake(true, false); // etat memorise (pas de prompt au demarrage)
+  else setLidSleep(0, false); // filet : cafeine off -> pas de veille bloquee (reset d'un eventuel crash)
 
 
 
@@ -1634,8 +1635,53 @@ ipcMain.on('quicklook', (e, paths) => {
 });
 // ---- Rester eveille (caffeinate) + Ecran eteint (pmset displaysleepnow) [macOS] ----
 // caffeinate -i -m -s : empeche la veille systeme/disque/inactivite (l'ecran peut dormir).
+// + pmset disablesleep : empeche AUSSI la veille CAPOT FERME (necessite root -> une regle
+//   sudoers NOPASSWD limitee a "pmset disablesleep", installee une seule fois via le
+//   dialogue admin natif ; le mot de passe n'est jamais stocke par l'app).
 let awakeProc = null;
-function applyKeepAwake(on) {
+const SUDOERS_PATH = '/etc/sudoers.d/notchzfx';
+
+// Applique disablesleep (0/1) SANS mot de passe si la regle sudoers est en place.
+function setLidSleepNoPrompt(val) {
+  try { execFileSync('/usr/bin/sudo', ['-n', '/usr/bin/pmset', 'disablesleep', String(val)], { stdio: 'ignore' }); return true; }
+  catch (_) { return false; }
+}
+
+// Installe la regle sudoers (prompt admin UNIQUE) puis applique disablesleep=val.
+function installLidRuleAndApply(val, done) {
+  const user = os.userInfo().username;
+  const tmp = path.join(os.tmpdir(), 'nzfx-sudoers-setup.sh');
+  const rule = `${user} ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 0, /usr/bin/pmset disablesleep 1`;
+  // Script installe par osascript en root : valide la regle (visudo -c) AVANT de la poser
+  // (une regle invalide casserait sudo), puis applique l'etat.
+  const sh = [
+    '#!/bin/bash',
+    'set -e',
+    'tmpf="$(/usr/bin/mktemp)"',
+    `/bin/cat > "$tmpf" <<'RULE'\n${rule}\nRULE`,
+    '/usr/sbin/visudo -cf "$tmpf"',
+    `/usr/bin/install -m 0440 -o root -g wheel "$tmpf" ${SUDOERS_PATH}`,
+    '/bin/rm -f "$tmpf"',
+    `/usr/bin/pmset disablesleep ${val}`,
+    '',
+  ].join('\n');
+  try { fs.writeFileSync(tmp, sh, { mode: 0o700 }); } catch (_) { if (done) done(false); return; }
+  const osa = `do shell script "/bin/bash '${tmp}'" with administrator privileges`;
+  execFile('osascript', ['-e', osa], (err) => {
+    try { fs.unlinkSync(tmp); } catch (_) {}
+    if (done) done(!err);
+  });
+}
+
+// Empeche la veille capot ferme (val=1) ou la retablit (val=0). allowPrompt=true autorise
+// le dialogue admin d'installation de la regle si besoin.
+function setLidSleep(val, allowPrompt) {
+  if (process.platform !== 'darwin') return;
+  if (setLidSleepNoPrompt(val)) return;        // regle deja en place -> silencieux
+  if (allowPrompt) installLidRuleAndApply(val); // sinon : installe (prompt) puis applique
+}
+
+function applyKeepAwake(on, allowPrompt) {
   if (process.platform !== 'darwin') return;
   if (on && !awakeProc) {
     try {
@@ -1647,11 +1693,12 @@ function applyKeepAwake(on) {
     try { awakeProc.kill(); } catch (_) {}
     awakeProc = null;
   }
+  setLidSleep(on ? 1 : 0, allowPrompt); // veille capot fermé aussi
 }
 ipcMain.on('set-keep-awake', (_e, on) => {
   const v = !!on;
   if (prefsStore) prefsStore.set('keepAwake', v);
-  applyKeepAwake(v);
+  applyKeepAwake(v, true); // clic utilisateur -> on autorise le prompt admin (1re fois)
   broadcast('keep-awake', v);
 });
 
