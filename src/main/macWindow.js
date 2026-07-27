@@ -41,8 +41,11 @@ function applyStationary(win) {
     const nsWindow = msgSendPtr(view, sel('window'));
     if (!nsWindow) return false;
     const before = BigInt(msgSendGet(nsWindow, sel('collectionBehavior')));
-    let after = before & ~(MANAGED | TRANSIENT | MOVE_TO_ACTIVE | PARTICIPATES_CYCLE);
-    after |= CAN_JOIN_ALL_SPACES | STATIONARY | IGNORES_CYCLE | FULLSCREEN_AUX;
+    // On retire STATIONARY : il gardait l'encoche fixe pendant les swipes de Bureau MAIS
+    // la faisait AUSSI apparaitre dans Mission Control (comme le bureau). CanJoinAllSpaces
+    // + setVisibleOnAllWorkspaces (Electron) suffisent a la garder sur tous les bureaux.
+    let after = before & ~(MANAGED | TRANSIENT | MOVE_TO_ACTIVE | PARTICIPATES_CYCLE | STATIONARY);
+    after |= CAN_JOIN_ALL_SPACES | IGNORES_CYCLE | FULLSCREEN_AUX;
     msgSendSet(nsWindow, sel('setCollectionBehavior:'), after);
     return true;
   } catch (_) {
