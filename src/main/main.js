@@ -660,6 +660,19 @@ function refreshCalendar() {
   getCalendar(7).then((c) => { calendarData = c; broadcast('calendar', c); }).catch(() => {});
 }
 
+// Vrai si un autre ecran est colle juste AU-DESSUS de `d` (bord superieur partage
+// + chevauchement horizontal). Dans ce cas le haut-centre de `d` est un couloir de
+// passage vers l'ecran du dessus : tant que l'encoche est ouverte on y remet le
+// compteur de survol a zero, pour qu'une reouverture exige un nouveau dwell complet
+// (sinon fermeture + hoverSince perime = reouverture instantanee = boucle deplier/replier).
+function hasDisplayAbove(d) {
+  return screen.getAllDisplays().some((o) =>
+    o.id !== d.id &&
+    Math.abs((o.bounds.y + o.bounds.height) - d.bounds.y) <= 2 &&
+    o.bounds.x < d.bounds.x + d.bounds.width &&
+    o.bounds.x + o.bounds.width > d.bounds.x);
+}
+
 // ---- Suivi souris : ouverture (drag ou proximite haut-centre) + fermeture a la
 // sortie, gere PAR ECRAN. On itere chaque encoche selon l'ecran ou est le curseur.
 function startMouseTracking() {
@@ -689,6 +702,9 @@ function startMouseTracking() {
         const b = n.win.getBounds();
         const inside = p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + OPEN.h + 4;
         if (inside) n.lastInsideAt = now;
+        // Ecran empile au-dessus : on neutralise le compteur de survol tant que c'est
+        // ouvert -> apres fermeture, la reouverture exigera un nouveau dwell (anti-boucle).
+        if (hasDisplayAbove(d)) n.hoverSince = 0;
         // Fermeture 100 ms apres la sortie de la souris.
         if (now - n.lastInsideAt > 100 && now > n.holdOpenUntil && !preventClose) closeNotch(n);
         return;
