@@ -712,8 +712,13 @@ function startMouseTracking() {
 
       // FERME (mains vides) : ouverture facilitee des que le curseur touche le bord
       // HAUT pres du centre (zone large). Respecte "Ouvrir au survol" + "Hover delay".
+      // On NE dépend PAS de `onThis` (getDisplayNearestPoint dithère à la frontière
+      // d'écrans empilés -> remettrait hoverSince à zéro en boucle et empêcherait
+      // l'ouverture « de loin »). On se base uniquement sur la position PHYSIQUE du
+      // curseur vs les bornes de CET écran (nearTop/nearCenter) : sans ambiguïté, un
+      // seul écran correspond à une position donnée.
       const hoverEnabled = !prefsStore || prefsStore.get('openOnHover');
-      if (onThis && hoverEnabled) {
+      if (hoverEnabled) {
         const wide = !prefsStore || prefsStore.get('expandHoverZone');
         const halfZone = Math.max(wide ? 150 : 90, drawnClosedW(n) / 2 + (wide ? 60 : 10));
         const nearTop = p.y >= d.bounds.y && p.y <= d.bounds.y + 6;
